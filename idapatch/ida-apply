@@ -1,0 +1,24 @@
+#!/usr/bin/env python
+import argparse, sys
+from apply import apply_patch
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(description="""
+        Applies IDA-generated patches to binaries.  Specify a single binary,
+        and any number of patch files.
+    """)
+    p.add_argument('--output', help='Output file (default stdout)', type=argparse.FileType('wb'), default=None)
+    p.add_argument('input', help='Input file', type=argparse.FileType('rb'))
+    p.add_argument('patches', help='Patch files', type=argparse.FileType('rb'), nargs='+')
+    args = p.parse_args()
+
+    if args.output is None:
+        args.output = file(args.input.name + '.patched', 'wb+')
+
+    data = args.input.read()
+    for patchfile in args.patches:
+        data = apply_patch(data, patchfile.read())
+    args.output.write(data)
+
+    print "Patched file written to %s" % repr(args.output.name)
