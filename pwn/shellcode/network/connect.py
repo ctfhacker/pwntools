@@ -2,7 +2,7 @@ from pwn.internal.shellcode_helper import *
 from .. import dupsh, pushstr
 
 @shellcode_reqs(arch=['i386', 'amd64', 'thumb'], os=['linux', 'freebsd'], network='ipv4')
-def connectback(host, port, sock = False):
+def connectback(host, port, sock = None):
     """Args: host, port
     Standard connect back type shellcode."""
     return connect(host, port), dupsh(sock = sock)

@@ -1,4 +1,5 @@
 import pwn
+import os
 
 def attach_gdb_to_pid(pid, execute = None, execute_file = None):
     import os, tempfile
@@ -16,9 +17,16 @@ def attach_gdb_to_pid(pid, execute = None, execute_file = None):
         if term is None:
             pwn.die('No environment variable named (COLOR)TERM')
         term = pwn.which(term)
+    args    = ['-e']
+
+    if 'SSH_TTY' in os.environ:
+        term = pwn.which('tmux')
+        args = ['splitw']
+
     termpid = os.fork()
     if termpid == 0:
-        argv = [term, '-e', 'gdb "%s" %d' % (prog, pid)]
+        argv = [term] + args + ['gdb "%s" %d' % (prog, pid)]
+        print argv
         if execute:
             with tempfile.NamedTemporaryFile(prefix='pwn', suffix='.gdb') as tmp:
                 tmp.write(execute)
