@@ -1,10 +1,27 @@
 from .. import log
+from ..util.misc import sh_string
 from . import tube
-import subprocess, fcntl, os, select
+import subprocess, fcntl, os, select, pexpect
+
+# Compatibility between popen and pexpect.spawn
+pexpect.spawn.returncode = property(lambda self: self.exitstatus)
 
 class process(tube.tube):
     def __init__(self, args, shell = False, executable = None,
-                 cwd = None, env = None, timeout = 'default'):
+                 cwd = None, env = None, timeout = 'default', pty=False):
+        """Launches a process, in the same fashion as `popen`, but permits
+        interaction with the process as a tube.
+
+        Arguments:
+            args(tuple): Passed through to subprocess.Popen.
+            shell(bool): Passed through to subprocess.Popen.
+            executable(str): Passed through to subprocess.Popen.
+            cwd(str): Passed through to subprocess.Popen.
+            env(dict): Passed through to subprocess.Popen.
+            timeout(float): Passed through to tube.__init__
+            tty(bool): If True, PTY is created and assiged to
+                stdin/stdout/stderr of the process.
+        """
         super(process, self).__init__(timeout)
 
         if executable:
@@ -16,11 +33,31 @@ class process(tube.tube):
         else:
             log.error("process(): Do not understand the arguments %r" % args)
 
-        self.proc = subprocess.Popen(
-            args, shell = shell, executable = executable,
-            cwd = cwd, env = env,
-            stdin = subprocess.PIPE, stdout = subprocess.PIPE,
-            stderr = subprocess.STDOUT)
+        stdin = stdout = subprocess.PIPE
+        stderr = subprocess.STDOUT
+
+        if pty:
+            if isinstance(args, (list, tuple)):
+                args = ['-c', subprocess.list2cmdline(args)]
+
+            print args
+            self.proc  = pexpect.spawn('/bin/sh', args,
+                                       cwd  = cwd or '.',
+                                       env  = env or os.environ,
+                                       echo = False)
+            self.proc.poll  = lambda: spawn_poll(self.proc)
+            self.proc.stdin = self.proc.stdout = os.fdopen(self.proc.child_fd, 'r+')
+
+        else:
+            self.proc  = subprocess.Popen(args,
+                                          shell      = shell,
+                                          executable = executable,
+                                          cwd        = cwd,
+                                          env        = env,
+                                          stdin      = stdin,
+                                          stdout     = stdout,
+                                          stderr     = stderr)
+
         self.stop_noticed = False
 
         # Set in non-blocking mode so that a call to call recv(1000) will
@@ -95,7 +132,7 @@ class process(tube.tube):
             self.proc.stdin.write(data)
             self.proc.stdin.flush()
         except IOError:
-            raise EOFError
+            raise # raise EOFError
 
     def settimeout_raw(self, timeout):
         pass
