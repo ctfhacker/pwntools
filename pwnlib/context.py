@@ -17,12 +17,12 @@ act as a "base" for the thread-local values.
 # These are the possiblities for arch and os
 __possible__ = {
     'arch': (
-        'alpha', 'amd64', 'arm', 'armeb',
+        'alpha', 'aarch64', 'amd64', 'arm', 'armeb',
         'cris', 'i386', 'm68k', 'mips',
-        'mipsel', 'powerpc', 'thumb'
+        'mipsel', 'powerpc', 'powerpc64', 'thumb'
     ),
-    'arch32': ('arm', 'armeb', 'cris', 'i386', 'm68k', 'mips', 'mipsel', 'thumb'),
-    'arch64': ('alpha', 'amd64'),
+    'arch32': ('arm', 'armeb', 'cris', 'i386', 'm68k', 'mips', 'mipsel', 'thumb', 'powerpc'),
+    'arch64': ('aarch64', 'alpha', 'amd64', 'powerpc64'),
     'os': ('linux', 'freebsd')
 }
 
@@ -128,6 +128,10 @@ class ContextModule(types.ModuleType):
             elif value in self.__possible__['arch64']:
                 self.word_size = 64
             return value
+
+    @property
+    def ptr_size(self):
+        return self.word_size/8
 
     @_validator
     def os(self, value):

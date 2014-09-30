@@ -53,11 +53,14 @@ def pack(number, word_size = None, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
+    if not isinstance(number, (int,long)):
+        raise ValueError("pack(): number must be of type (int,long) (got %r)" % type(number))
+
     if sign not in ['signed', 'unsigned']:
-        raise ValueError("pack(): sign must be either 'signed' or 'unsigned'")
+        raise ValueError("pack(): sign must be either 'signed' or 'unsigned' (got %r)" % sign)
 
     if endianness not in ['little', 'big']:
-        raise ValueError("pack(): endianness must be either 'little' or 'big'")
+        raise ValueError("pack(): endianness must be either 'little' or 'big' (got %r)" % endianness)
 
     # Verify that word_size make sense
     if word_size == 'all':
@@ -79,7 +82,7 @@ def pack(number, word_size = None, endianness = None, sign = None):
     else:
         limit = 1 << word_size
         if not 0 <= number < limit:
-            raise ValueError("pack(): number does not fit within word_size")
+            raise ValueError("pack(): number does not fit within word_size [%i, %r, %r]" % (0, number, limit))
 
     # Normalize number and size now that we have verified them
     # From now on we can treat positive and negative numbers the same
