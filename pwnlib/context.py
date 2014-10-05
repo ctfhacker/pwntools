@@ -1,3 +1,5 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
 import types, sys, threading
 from . import log_levels
 
@@ -25,6 +27,303 @@ __possible__ = {
     'arch64': ('aarch64', 'alpha', 'amd64', 'powerpc64'),
     'os': ('linux', 'freebsd')
 }
+
+import threading
+from collections import defaultdict
+
+ContextBasicDefaults = {
+    'os': 'linux',
+    'arch': 'i386',
+    'endian': 'little',
+    'timeout': 'default'
+}
+
+def ValidateEndianness(endianness, context_dict=None):
+    """ValidateEndian(endianness, context_dict=None) => str
+
+    Validates the specified string as a valid endianness.
+
+    Arguments:
+        endianness(str): String specifying endianness
+        context_dict(dict): Unused
+
+    Returns:
+        String containing endianness value
+
+    :rasies ValueError: An invalid endianness was provided
+
+    >>> ValidateEndianness('be')
+    'big'
+    >>> ValidateEndianness('little')
+    'little'
+    >>> ValidateEndianness('foobar')
+    Traceback (most recent call last):
+     ...
+    ValueError: endianness must be one of ['el', 'little', 'le', 'be', 'big', 'eb']
+    """
+
+    aliases = {
+        'be': 'big',
+        'eb': 'big',
+        'big': 'big',
+        'le': 'little',
+        'el': 'little',
+        'little': 'little'
+    }
+
+    endianness = endianness.lower()
+
+    if endianness not in aliases:
+        raise ValueError("endianness must be one of %r" % (aliases.keys(),))
+
+    return aliases[endianness]
+
+def ValidateWordSize(word_size, context_dict=None):
+    valid     = (16, 32, 64, 128)
+    word_size = int(word_size)
+    if word_size not in valid:
+        raise ValueError("word_size must be one of %r" % (valid,))
+    return word_size
+
+def ValidateArch(context_dict, arch):
+    """ValidateArch(context_dict, arch) => str
+
+    Validates the specified architecture, and uses context_dict to provide
+    additional hinting or default setting.
+
+    For example, specifying `context.arch = 'mips64el' should set `context.arch`,
+    `context.endianness`, and `context.word_size`.
+
+    However, the latter two will not override  user-suppled values.
+
+    Arguments:
+        context_dict(dict): Dictionary containing context information
+        arch(str):          String representation of the architecture name
+
+    Returns:
+        String representation of the architecture, after cleaning any
+        additional trailing fields.
+
+    :raises UserError: Raised if `arch` implies an additional value which the user has already specified.
+    :raises ValueError: An invalid architecture was specified
+
+    >>> ValidateArch({}, 'mips')
+    'mips'
+    >>> ValidateArch({}, 'doge')
+    Traceback (most recent call last):
+     ...
+    ValueError: endianness must be one of ['el', 'little', 'le', 'be', 'big', 'eb']
+    >>> ctx = {}
+    >>> ValidateArch({}, 'powerpc64be')
+    'powerpc'
+    >>> ctx
+    {'endianness': 'big', 'word_size': 64}
+
+
+    """
+    valid = ('alpha',
+             'amd64',
+             'arm',
+             'cris',
+             'i386',
+             'm68k',
+             'mips',
+             'powerpc',
+             'thumb')
+
+    endian    = None
+    word_size = None
+    arch      = arch.lower()
+
+    while arch not in valid:
+        # Attempt to handle "mipsle" or "armeb", and override the default
+        # if an explicit value has not been set.
+        try:
+            endianness = ValidateEndianness(arch[-2:])
+            arch = arch[:-2]
+            if 'endianness' not in context_dict:
+                context_dict['endianness'] = endianness
+            else:
+                raise UserWarning("endianness specified with arch (%r); arch is already set (%r)" % (arch, endianness))
+            continue
+        except LookupError:
+            pass
+
+        # Attempt to handle "powerpc64" or "arm64", and override the default
+        # if an explicit value has not been set.
+        try:
+            word_size = ValidateWordSize(arch[-2:])
+            arch = arch[:-2]
+            if 'word_size' not in context_dict:
+                context_dict['word_size'] = word_size
+            else:
+                raise UserWarning("word_size specified with arch (%r); arch is already set (%r)" % (arch, word_size))
+            continue
+        except LookupError:
+            pass
+
+        # Raise an exception, as it's still not valid and we can't make it better
+        raise LookupError('arch must be one of %r' % (valid,))
+
+    return arch
+
+
+ValidatorsAndAliases = {
+    'arch': ,
+    'os': { i:i for i in ('linux','freebsd','windows')},
+    'endianness': ,
+    'word_size': {
+        32: 32,
+        64: 64
+    },
+}
+def validate_arch(x):
+    valid =
+    assert arch in valid, "arch must be one of %r" % (valid,)
+
+
+class ContextValidator(defaultdict):
+    def __init__(self):
+        super(ContextValidator, self).__init__(None)
+
+    def __missing__(self, key):
+        if key in ContextBasicDefaults:
+            return defaults[key]
+
+        return ContextComputeDefault(self, key)
+
+class TlsContextStack(threading.local):
+    def __init__(self):
+        # The currently-activated context, through which context.xxx is serviced
+        self.current = defaultdict(lambda: None)
+
+        # The stack of contexts which are popped on Context.__exit__
+        self.stack   = []
+
+    def push(self):
+        self.stack.append(self.current.copy())
+
+    def pop(self):
+        self.current.clear()
+        self.current.update(self.stack.pop())
+
+    def __getitem__(self, k):
+        return self.current[k]
+
+    def __setitem__(self, k, v):
+        self.current[k] = v
+
+
+class TlsContext(object):
+    __slots__ = 'tls',
+
+    def __init__(self):
+        self.tls = TlsContextStack()
+
+    def __call__(self, **kwargs):
+        for k,v in kwargs.items():
+            setattr(self,k,v)
+        return self
+
+    def __repr__(self):
+        v = ["%s = %r" % (k,v) for k,v in self.tls.current.items()]
+        return '%s(%s)' % (self.__class__.__name__, ', '.join(v))
+
+    def local(self, **kwargs):
+        ctx = self
+        class LocalContext(object):
+            def __enter__(self):
+                ctx.tls.push()
+                ctx(**kwargs)
+                return ctx
+
+            def __exit__(self, *a, **b):
+                ctx.tls.pop()
+
+        return LocalContext()
+
+    @property
+    def arch(self):
+        return self.tls['arch']
+    @arch.setter
+    def arch(self, value):
+        self.tls['arch'] = value
+
+    @property
+    def endianness(self):
+        return self.tls['endianness']
+
+    @endianness.setter
+    def endianness(self, value):
+        self.tls['endianness'] = value
+
+    @property
+    def os(self):
+        return self.tls['os']
+    @os.setter
+    def os(self, value):
+        self.tls['os'] = value
+
+    @property
+    def timeout(self):
+        return self.tls['timeout']
+    @timeout.setter
+    def timeout(self, value):
+        self.tls['timeout'] = value
+
+    @property
+    def word_size(self):
+        return self.tls['word_size']
+    @word_size.setter
+    def word_size(self, value):
+        self.tls['word_size'] = value
+
+    @property
+    def endian(self):
+        return self.endianness
+    @endian.setter
+    def endian(self, value):
+        self.endianness = value
+
+    @property
+    def ptr_size(self):
+        return (self.word_size or 0) / 8
+
+
+defaults = {
+    'os': 'voodoo'
+}
+
+context(**defaults)
+
+class ScopedContextManager(object):
+    def __init__(self, current=None):
+        self.scopes = [current or ScopedContext()]
+
+    def __setattr__(self, name, value):
+        setattr(self.current(), name, value)
+
+    def __getattr__(self, name):
+        getattr(self.current(), name)
+
+    def current(self):
+        return self.contexts[0]
+
+    def push(self, context):
+        self.contexts.append(context)
+
+    def pop(self, context=None):
+        popped = self.contexts.pop()
+        if context is None or context is popped:
+            return popped
+        raise RuntimeWarning("Popped context %r is not the same as expected %r" % (popped, context))
+
+
+
+
+class ThreadLocalContextManager(object):
+    def __init__(self):
+        self.threads = {}
 
 class Local(object):
     def __init__(self, args):

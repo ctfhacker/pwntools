@@ -8,19 +8,31 @@ _basedir = path.split(__file__)[0]
 _bindir  = path.join(_basedir, 'data', 'binutils')
 _incdir  = path.join(_basedir, 'data', 'includes')
 
+def binutils_prefix(arch, endian=None):
+    """
+    Retrieves the binutils prefix for the specified architecture.
+
+    Arguments:
+        arch(str): Name of the architecture, e.g. 'arm'.
+
 def _assembler(arch):
+    E = {
+        'big':    '-EB',
+        'little': '-EL'
+    }[context.endianness]
+
     assemblers = {
-        'i386'   : ['nasm', '-Ox'],
-        'amd64'  : ['nasm', '-Ox'],
-        'thumb'  : [path.join(_bindir, 'arm-as')],
-        'mips'   : [path.join(_bindir, 'mips-as' ), '--EB'],
-        'mipsel' : [path.join(_bindir, 'mips-as' ), '--EL'],
+        'i386'   : ['x86_64-linux-gnu-as', '--32'],
+        'x32'    : ['x86_64-linux-gnu-as', '--x32'],
+        'amd64'  : ['x86_64-linux-gnu-as', '--64'],
+        'thumb'  : ['arm-linux-gnueabi-as', '-thumb', E],
+        'arm'    : ['arm-linux-gnueabi-as', E],
+        'aarch64': ['aarch64-linux-gnu-as', E]
+        'mips'   : ['mips-linux-gnu-as, E],
+        'powerpc': ['powerpc-linux-gnu-as', '-m%s' % context.endianness]
     }
 
-    if arch in assemblers:
-        return assemblers[arch]
-    else:
-        return [path.join(_bindir, arch + '-as')]
+    return assemblers[arch]
 
 
 def _objcopy(arch):
@@ -47,8 +59,16 @@ def _include_header(arch, os):
 
 
 def _arch_header(arch):
+    prefix  = '.section .shellcode,"ax"'
     headers = {
-        'i386'  : ['bits 32'],
+        'i386'  :
+"""
+.intel_syntax
+"""
+
+            '.section .shellcode,"ax"',
+            '.syntax unified',
+        ]
         'amd64' : ['bits 64'],
         'arm'   : [
             '.section .shellcode,"ax"',
@@ -67,11 +87,6 @@ def _arch_header(arch):
             '.set mips2',
             '.set noreorder',
         ],
-        'mipsel'  : [
-            '.section .shellcode,"ax"',
-            '.set mips2',
-            '.set noreorder',
-        ],
     }
 
     if arch in headers:
@@ -85,8 +100,7 @@ def _bfdname(arch):
         'amd64'   : 'elf64-x86-64',
         'arm'     : 'elf32-littlearm',
         'thumb'   : 'elf32-littlearm',
-        'mips'    : 'elf32-bigmips',
-        'mipsel'  : 'elf32-littlemips',
+        'mips'    : 'elf32-%smips' % context.endianness,
         'alpha'   : 'elf64-alpha',
         'cris'    : 'elf32-cris',
         'ia64'    : 'elf64-ia64-little',
