@@ -8,13 +8,43 @@ _basedir = path.split(__file__)[0]
 _bindir  = path.join(_basedir, 'data', 'binutils')
 _incdir  = path.join(_basedir, 'data', 'includes')
 
-def binutils_prefix(arch, endian=None):
-    """
+i386    = r'i386.*'
+x86_64  = r'x86_64.*'
+aarch64 = r'arm64'
+ppc     = r'powerpc32'
+ppc64   = r'powerpc64'
+mips    = r'mips.*'
+
+def binutils_prefix(arch=None, word_size=None):
+    """binutils_prefix(arch, word_size=None) -> str
+
     Retrieves the binutils prefix for the specified architecture.
 
     Arguments:
         arch(str): Name of the architecture, e.g. 'arm'.
+            Defaults to using 'context.arch'
+        word_size(str): Word size on the specified architecture.
+            Defaults to using 'context.word_size'
+
+    Returns:
+        String containing the prefix for the installed system
+        binutils for the specified architecture.
+
+    >>> binutils_prefix('arm')
+    'arm-linux-gnueabihf-'
+    >>> binutils_prefix('arm', 64)
+    'aarch64-linux-gnu-'
     """
+
+    arch      = arch      or context.arch
+    word_size = word_size or context.word_size
+
+    matchers = {
+        r'i386.*': 'x86_64-linux-gnu-'
+    }
+
+def as(arch=None, word_size=None):
+
 
 def _binutils_prefix(arch):
     """_binutils_prefix(arch) -> str
@@ -70,7 +100,7 @@ def _include_header(arch, os):
 def _arch_header(arch):
     prefix  = ['.section .shellcode,"ax"']
     headers = {
-        'i386'  : ['.intel_syntax'],
+        'i386'  : ['.intel_syntax']
         'amd64' : ['.intel_syntax'],
         'arm'   : ['.syntax unified',
                    '.arch armv7-a',
