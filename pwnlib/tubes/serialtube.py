@@ -2,6 +2,8 @@
 # from . import tube
 # # import serial, time, threading, sys
 
+class serialtube: pass
+
 # class serialtube(tube.tube):
 #     def __init__(
 #             self, port = '/dev/ttyUSB0', baudrate = 115200,

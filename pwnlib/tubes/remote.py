@@ -1,8 +1,8 @@
-from . import sock
+from .sock import sock
 from .. import log
 import socket
 
-class remote(sock.sock):
+class remote(sock):
     """Creates a TCP or UDP-connection to a remote host. It supports
     both IPv4 and IPv6.
 

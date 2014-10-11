@@ -1,8 +1,8 @@
 from .. import log
-from . import tube
+from .tube import tube
 import subprocess, fcntl, os, select
 
-class process(tube.tube):
+class process(tube):
     def __init__(self, args, shell = False, executable = None,
                  cwd = None, env = None, timeout = 'default'):
         super(process, self).__init__(timeout)

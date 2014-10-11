@@ -1,8 +1,9 @@
-from . import sock
-from .. import log, thread
+from .sock     import sock
+from ..        import log
+from ..context import context
 import socket, errno, threading
 
-class listen(sock.sock):
+class listen(sock):
     """Creates an TCP or UDP-socket to receive data on. It supports
     both IPv4 and IPv6.
 
@@ -91,7 +92,7 @@ class listen(sock.sock):
             self.rhost, self.rport = rhost[:2]
             h.success('Got connection from %s on port %d' % (self.rhost, self.rport))
 
-        self._accepter = thread.Thread(target = accepter)
+        self._accepter = context.thread(target = accepter)
         self._accepter.daemon = True
         self._accepter.start()
 
@@ -99,7 +100,7 @@ class listen(sock.sock):
         def accepter():
             self.wait_for_connection()
             super(listen, self).spawn_process(*args, **kwargs)
-        t = thread.Thread(target = accepter)
+        t = Thread(target = accepter)
         t.daemon = True
         t.start()
 

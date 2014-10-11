@@ -1,6 +1,5 @@
  # -*- coding: utf-8 -*-
-
-from .. import context
+from ..context import context
 import struct
 
 def pack(number, word_size = None, endianness = None, sign = None):

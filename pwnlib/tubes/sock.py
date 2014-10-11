@@ -2,7 +2,7 @@ import socket, errno, select
 from . import tube
 from .. import log
 
-class sock(tube.tube):
+class sock(tube):
     """Methods available exclusively to sockets."""
 
     def __init__(self, timeout):

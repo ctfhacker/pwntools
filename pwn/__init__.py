@@ -2,9 +2,6 @@
 import sys
 from .toplevel import *
 
-# default log level in non-lib mode
-context.defaults.log_level = 'info'
-
 # look for special args in argv
 def closure():
     term_mode = True

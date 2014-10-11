@@ -1,6 +1,7 @@
-from . import context, log
 import tempfile, subprocess, shutil, tempfile, errno
 from os import path
+from .context import context
+from .log     import *
 
 __all__ = ['asm', 'cpp', 'disasm']
 
@@ -105,7 +106,7 @@ def _bfdname(arch):
     if arch in bfdnames:
         return bfdnames[arch]
     else:
-        log.error("Cannot find bfd name for architecture %r" % arch)
+        error("Cannot find bfd name for architecture %r" % arch)
 
 
 def _bfdarch(arch):
@@ -131,7 +132,7 @@ def _run(cmd, stdin = None):
         exitcode = proc.wait()
     except OSError as e:
         if e.errno == errno.ENOENT:
-            log.error('Could not run %r the program' % cmd[0])
+            error('Could not run %r the program' % cmd[0])
         else:
             raise
 
@@ -141,7 +142,7 @@ def _run(cmd, stdin = None):
             msg += 'It had the exitcode %d.\n' % exitcode
         if stderr != '':
             msg += 'It had this on stdout:\n%s\n' % stderr
-        log.error(msg)
+        error(msg)
 
 
     return stdout
@@ -249,7 +250,7 @@ def asm(shellcode, arch = None, os = None):
         with open(step3) as fd:
             return fd.read()
     except:
-        log.error("An error occurred while assembling:\n%s" % code)
+        error("An error occurred while assembling:\n%s" % code)
     finally:
         shutil.rmtree(tmpdir)
 

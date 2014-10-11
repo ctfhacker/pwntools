@@ -1,5 +1,6 @@
-from .. import log, log_levels, context, term, atexit, thread
+from .. import log, log_levels, context, term, atexit
 from ..util import misc
+from ..context import context
 import re, threading, sys, time, subprocess
 
 def _fix_timeout(timeout, default):
@@ -536,7 +537,7 @@ class tube(object):
                     log.info('Got EOF while reading in interactive')
                     break
 
-        t = thread.Thread(target = recv_thread, args = (go,))
+        t = context.thread(target = recv_thread, args = (go,))
         t.daemon = True
         t.start()
 
@@ -614,7 +615,7 @@ class tube(object):
             self.shutdown('send')
             other.shutdown('recv')
 
-        t = thread.Thread(target = pump)
+        t = context.thread(target = pump)
         t.daemon = True
         t.start()
 
@@ -753,7 +754,7 @@ class tube(object):
         of a closed connection it should raise an :exc:`exceptions.EOFError`.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def send_raw(self, data):
         """send_raw(data)
@@ -764,7 +765,7 @@ class tube(object):
         more, because of a close tube.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def settimeout_raw(self, timeout):
         """settimeout_raw(timeout)
@@ -773,7 +774,7 @@ class tube(object):
         the tube.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def can_recv_raw(self, timeout):
         """can_recv_raw(timeout) -> bool
@@ -783,7 +784,7 @@ class tube(object):
         ignores the buffer on the object.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def connected_raw(self, direction):
         """connected(direction = 'any') -> bool
@@ -792,7 +793,7 @@ class tube(object):
         tube is connected in the given direction.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def close(self):
         """close()
@@ -800,7 +801,7 @@ class tube(object):
         Closes the tube.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def fileno(self):
         """fileno() -> int
@@ -808,7 +809,7 @@ class tube(object):
         Returns the file number used for reading.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()
 
     def shutdown_raw(self, direction):
         """shutdown_raw(direction)
@@ -817,4 +818,4 @@ class tube(object):
         writing.
         """
 
-        log.bug('Should be implemented by a subclass.')
+        raise NotImplementedError()

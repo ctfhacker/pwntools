@@ -1,10 +1,12 @@
-import os, string, base64, paramiko, time, tempfile, threading, sys, shutil, re
-from .. import term, log, context, thread
+import os, string, base64, paramiko, time, tempfile, sys, shutil, re
+
+from .. import term, log
+from ..context import context
 from ..util import hashes, misc
-from . import sock, tube
+from .sock    import sock
 from .process import process
 
-class ssh_channel(sock.sock):
+class ssh_channel(sock):
     def __init__(self, parent, process = None, tty = False, wd = None, env = None, timeout = 'default'):
         super(ssh_channel, self).__init__(timeout)
 
@@ -127,7 +129,7 @@ class ssh_channel(sock.sock):
                     go[0] = False
                     break
 
-        t = thread.Thread(target = recv_thread, args = (go,))
+        t = context.thread(target = recv_thread, args = (go,))
         t.daemon = True
         t.start()
 
@@ -170,7 +172,7 @@ class ssh_channel(sock.sock):
     def _close_msg(self):
         log.info('Closed SSH channel with %s' % self.host)
 
-class ssh_connecter(sock.sock):
+class ssh_connecter(sock):
     def __init__(self, parent, host, port, timeout = 'default'):
         super(ssh_connecter, self).__init__(timeout)
 
@@ -201,7 +203,7 @@ class ssh_connecter(sock.sock):
         log.info("Closed remote connection to %s:%d via SSH connection to %s" % (self.rhost, self.rport, self.host))
 
 
-class ssh_listener(sock.sock):
+class ssh_listener(sock):
     def __init__(self, parent, bind_address, port, timeout = 'default'):
         super(ssh_listener, self).__init__(timeout)
 
@@ -230,7 +232,7 @@ class ssh_listener(sock.sock):
             self.rhost, self.rport = self.sock.origin_addr
             h.success('Got connection from %s:%d' % (self.rhost, self.rport))
 
-        self._accepter = thread.Thread(target = accepter)
+        self._accepter = context.thread(target = accepter)
         self._accepter.daemon = True
         self._accepter.start()
 

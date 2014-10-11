@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import re, base64, random, string
 from . import packing, lists
-from .. import context
-from ..term import text
+from ..context import context
+from ..term    import text
 
 def unhex(s):
     """unhex(s) -> str
