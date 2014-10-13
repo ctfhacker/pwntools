@@ -48,8 +48,8 @@ class sock(tube):
         if data == '':
             self.shutdown("recv")
             raise EOFError
-        else:
-            return data
+
+        return data
 
     def send_raw(self, data):
         if self.closed["send"]:

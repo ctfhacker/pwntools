@@ -39,7 +39,7 @@ extensions = [
 doctest_global_setup = '''
 import pwnlib
 pwnlib.context.reset_local()
-pwnlib.context.log_level = 'silent'
+pwnlib.context.log_level = 'ERROR'
 '''
 
 autodoc_member_order = 'bysource'

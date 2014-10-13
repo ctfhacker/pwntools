@@ -772,7 +772,8 @@ class Context(object):
         else:                   return
 
         # Otherwise, fail
-        permitted = sorted(v for v in vars(log_levels) if not v.startswith('_'))
+        level_names = filter(lambda x: isinstance(x,str), logging._levelNames)
+        permitted = sorted(level_names)
         raise ValueError('log_level must be an integer or one of %r' % permitted)
 
 
@@ -858,8 +859,21 @@ class Context(object):
             Legacy support.  Use :attr:`signed` instead.
         """
         return self.signed
+
     @signedness.setter
     def signedness(self, value):
+        self.signed = value
+
+    @property
+    def sign(self):
+        """
+        .. deprecated::
+            Legacy support.  Use :attr:`signed` instead.
+        """
+        return self.signed
+
+    @sign.setter
+    def sign(self, value):
         self.signed = value
 
 

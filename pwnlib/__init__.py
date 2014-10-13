@@ -1,7 +1,7 @@
 __all__ = [
     'atexception' , 'atexit'      , 'asm'         , 'constants'   ,
     'context'     , 'dynelf'      , 'elf'         , 'exception'   ,
-    'gdb'         , 'log_levels'  , 'log'         , 'memleak'     ,
+    'gdb'                         , 'log'         , 'memleak'     ,
     'replacements', 'rop'         , 'shellcraft'  , 'term'        ,
     'tubes'       , 'ui'          , 'useragents'  , 'util'
 ]
@@ -10,7 +10,7 @@ __all__ = [
 from . import \
     atexception   , atexit        , asm           , constants     , \
                     dynelf        , elf           , exception     , \
-    gdb           , log_levels    , log           , memleak       , \
+    gdb                           , log           , memleak       , \
     replacements  , rop           , shellcraft    , term          , \
     tubes         , ui            , useragents    , util
 

@@ -67,29 +67,29 @@ class process(tube):
         # dead, so we can write a message.
         self.poll()
 
-        if self.proc.stdout.closed:
+        if not self.connected_raw('recv'):
             raise EOFError
 
         if not self.can_recv_raw(self.timeout):
-            return None
+            return ''
 
         # This will only be reached if we either have data,
         # or we have reached an EOF. In either case, it
         # should be safe to read without expecting it to block.
         data = self.proc.stdout.read(numb)
 
-        if data == '':
-            self.proc.stdout.close()
+        if not data:
+            self.shutdown("recv")
             raise EOFError
-        else:
-            return data
+
+        return data
 
     def send_raw(self, data):
         # This is a slight hack. We try to notice if the process is
         # dead, so we can write a message.
         self.poll()
 
-        if self.proc.stdin.closed:
+        if not self.connected_raw('send'):
             raise EOFError
 
         try:

@@ -277,7 +277,7 @@ class ssh(object):
 
         self.host            = host
         self.port            = port
-        self.timeout         = tube._fix_timeout(timeout, context.timeout)
+        self.timeout         = timeout
         self._cachedir       = os.path.join(tempfile.gettempdir(), 'pwntools-ssh-cache')
         self._wd             = None
         misc.mkdir_p(self._cachedir)
@@ -330,8 +330,6 @@ class ssh(object):
 
         Return a :class:`pwnlib.tubes.ssh.ssh_channel` object."""
 
-        timeout = tube._fix_timeout(timeout, self.timeout)
-
         if wd is None:
             wd = self._wd
 
@@ -344,7 +342,7 @@ class ssh(object):
         (data, exit_status). If `tty` is True, then the command is run inside
         a TTY on the remote server."""
 
-        with context.local(log_level = 'silent'):
+        with context.local(log_level = 'ERROR'):
             c = self.run(process, tty, wd = wd, timeout = None)
             data = c.recvall()
             retcode = c.wait()
@@ -475,7 +473,7 @@ class ssh(object):
         def update(has):
             h.status("%s/%s" % (misc.size(has), total))
 
-        with context.local(log_level = 'silent'):
+        with context.local(log_level = 'ERROR'):
             c = self.run('cat ' + misc.sh_string(remote))
         data = ''
 
@@ -572,7 +570,7 @@ class ssh(object):
           data(str): The data to upload.
           remote(str): The filename to upload it to."""
 
-        with context.local(log_level = 'silent'):
+        with context.local(log_level = 'ERROR'):
             s = self.run('cat>' + misc.sh_string(remote))
             s.send(data)
             s.shutdown('send')
