@@ -1,5 +1,7 @@
-from . import log, term
-import time, types
+from . import term
+import time, types, logging
+
+log = logging.getLogger('pwn.ui')
 
 def options(prompt, opts, default = None):
     """Presents the user with a prompt (typically in the

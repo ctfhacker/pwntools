@@ -1,7 +1,8 @@
 from .sock     import sock
-from ..        import log
 from ..context import context
-import socket, errno, threading
+import socket, errno, threading, logging
+
+log = logging.getLogger(__name__)
 
 class listen(sock):
     """Creates an TCP or UDP-socket to receive data on. It supports

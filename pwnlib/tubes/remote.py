@@ -1,6 +1,7 @@
 from .sock import sock
-from .. import log
-import socket
+import socket, logging
+
+log = logging.getLogger(__name__)
 
 class remote(sock):
     """Creates a TCP or UDP-connection to a remote host. It supports

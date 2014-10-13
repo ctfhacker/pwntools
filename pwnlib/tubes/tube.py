@@ -1,373 +1,396 @@
-from .. import log, log_levels, context, term, atexit
+from .buffer import Buffer
+from .timeout import Timeout
+from .. import context, term, atexit
 from ..util import misc
 from ..context import context
-import re, threading, sys, time, subprocess
+import re, threading, sys, time, subprocess, logging
 
-def _fix_timeout(timeout, default):
-    if timeout == 'default':
-        return default
-    elif timeout == None:
-        return timeout
-    elif isinstance(timeout, (int, long, float)):
-        if timeout < 0:
-            log.error("timeout cannot be negative")
-        else:
-            return timeout
-    else:
-        log.error("timeout must be either a number, None or the string 'default'")
+log = logging.getLogger(__name__)
 
-class tube(object):
-    """Container of all the tube functions common to both sockets, TTYs and SSH connetions."""
+class tube(Timeout):
+    """
+    Container of all the tube functions common to sockets, TTYs and SSH connetions.
+    """
 
-    def __init__(self, timeout):
-        self.buffer          = []
-        self.timeout         = _fix_timeout(timeout, context.timeout)
+    def __init__(self, timeout=None):
+        super(tube, self).__init__()
+        self.buffer          = Buffer()
         atexit.register(self.close)
 
     # Functions based on functions from subclasses
-    def recv(self, numb = 4096, timeout = 'default'):
-        """recv(numb = 4096, timeout = 'default') -> str
+    def recv(self, numb = sys.maxint, timeout = None):
+        """recv(numb = sys.maxint, timeout = None) -> str
 
-        Receives up to `numb` bytes of data from the tube.
-        If a timeout occurs while waiting, it will return None.
-        If the connection has been closed for receiving,
-        :exc:`exceptions.EOFError` will be raised.
+        Receives up to `numb` bytes of data from the tube, and returns
+        as soon as any quantity of data is available.
 
-        If the string "default" is given as the timeout, then
-        the timeout set by the constructor or :func:`settimeout`
-        will be used. If None is given, then there will be no timeout.
+        Raises:
+            :exc:`exceptions.EOFError` The connection is closed
 
-        It will also print a debug message with log level
-        :data:`pwnlib.log_levels.DEBUG` about the received data.
+        Returns:
+            A string containing bytes received from the socket,
+            or ``''`` if a timeout occurred while waiting.
         """
-        if self.buffer:
-            data = []
-            n = 0
-            while self.buffer and n < numb:
-                s = self.buffer.pop()
-                data.append(s)
-                n += len(s)
-            if n < numb:
-                try:
-                    s = self._recv(numb - n, timeout = 0)
-                    if s != None:
-                        data.append(s)
-                except EOFError:
-                    pass
-            elif n > numb:
-                s = data.pop()
-                delta = n - numb
-                self.buffer.append(s[delta:])
-                data.append(s[:delta])
-            return ''.join(data)
+        return self._recv(numb, timeout) or ''
 
-        return self._recv(numb, timeout = timeout)
+    def unrecv(self, data):
+        """unrecv(data)
 
-    def _recv(self, numb = 4096, timeout = 'default'):
-        """_recv(numb = 4096, timeout = 'default') -> str
+        Puts the specified data back at the beginning of the receive
+        buffer.
+
+        Examples:
+
+            >>> t = tube()
+            >>> t.recv_raw = lambda: 'hello'
+            >>> t.recv()
+            'hello'
+            >>> t.recv()
+            'hello'
+            >>> t.unrecv('world')
+            >>> t.recv()
+            'world'
+            >>> t.recv()
+            'hello'
+        """
+        self.buffer.unget(data)
+
+    def _fill(self, timeout = None):
+        """_fill(timeout = None)
+
+        Fills the internal buffer from the pipe
+        """
+
+        with self.timeout_scope(timeout):
+            data = self.recv_raw(sys.maxint)
+
+        if data:
+            log.debug('Received %#x bytes:' % len(data))
+            for line in data.splitlines(True):
+                log.indented(repr(line), level=logging.DEBUG)
+
+        self.buffer.add(data)
+        return data
+
+
+    def _recv(self, numb = sys.maxint, timeout = None):
+        """_recv(numb = sys.maxint, timeout = None) -> str
 
         Recieves one chunk of from the internal buffer or from the OS if the
         buffer is empty.
         """
-        # If there is already data, go with that
-        if self.buffer:
-            data = self.buffer.pop()
-        else:
-            if timeout == 'default':
-                data = self.recv_raw(4096)
-            else:
-                timeout       = _fix_timeout(timeout, self.timeout)
-                old_timeout   = self.timeout
-                self.settimeout(timeout)
-                data = self.recv_raw(4096)
-                self.settimeout(old_timeout)
+        data = ''
 
-            if data == None:
-                return None
-            else:
-                if context.log_level <= log_levels.DEBUG:
-                    for line in data.splitlines(True):
-                        log.debug('Received: %r' % line)
+        # No buffered data, could not put anything in the buffer
+        # before timeout.
+        if not self.buffer and not self._fill(numb,timeout):
+            return None
 
-        if len(data) > numb:
-            self.buffer.append(data[numb:])
-            data = data[:numb]
+        return self.buffer.get(numb)
 
-        return data
-
-    def recvpred(self, pred, timeout = 'default'):
-        """recvpred(pred, timeout = 'default') -> str
+    def recvpred(self, pred, timeout = None):
+        """recvpred(pred, timeout = None) -> str
 
         Receives one byte at a time from the tube, until ``pred(bytes)``
         evaluates to True.
 
-        If a timeout occurs while waiting, it will return None, and any
-        received bytes will be saved for later. It will never return
-        partial data, which did not make the predicate become True.
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
 
-        If the connection has been closed for receiving,
-        :exc:`exceptions.EOFError` will be raised.
+        Arguments:
+            pred(callable): Function to call, with the currently-accumulated data.
+            timeout(int): Timeout for the operation
 
-        .. note::
+        Raises:
+            :exc:`exceptions.EOFError` The connection is closed
 
-           Note that any data received before the occurence of an exception,
-           will be saved for use by a later receive. This means that
-           even if you get an :exc:`exceptions.EOFError`, you might in rare
-           cases be able to do a receive anyways.
+        Returns:
+            A string containing bytes received from the socket,
+            or ``''`` if a timeout occurred while waiting.
 
-        If the string "default" is given as the timeout, then
-        the timeout set by the constructor or :func:`settimeout`
-        will be used. If None is given, then there will be no timeout.
+
         """
 
         data = ''
 
-        try:
+        with self.timeout_scope(timeout):
             while not pred(data):
-                res = self._recv(1, timeout)
+                try:
+                    res = self.recv(1)
+                except:
+                    self.unrecv(data)
+                    return ''
 
-                if res == None:
-                    self.buffer.append(data)
-                    return None
-
-                data += res
-        except:
-            self.buffer.append(data)
-            raise
+                if res:
+                    data += res
+                else:
+                    self.unrecv(data)
+                    return ''
 
         return data
 
-    def recvn(self, numb, timeout = 'default'):
-        """recvn(numb, timeout = 'default') -> str
+    def recvn(self, numb, timeout = None):
+        """recvn(numb, timeout = None) -> str
 
         Recieves exactly `n` bytes.
+
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
+
+        Raises:
+            :exc:`exceptions.EOFError` The connection is closed
+
+        Returns:
+            A string containing bytes received from the socket,
+            or ``''`` if a timeout occurred while waiting.
+
+        Examples:
+
+            >>> t = tube()
+            >>> data = 'hello world'
+            >>> t.recv_raw = lambda n: data
+            >>> t.recvn(len(data)) == data
+            True
+            >>> t.recvn(len(data)+1) == data + data[0]
+            >>> t.recv_raw = None
+            >>> t.recv() = data[1:]
         """
 
-        data = []
-        n = 0
-        while n < numb:
-            try:
-                res = self._recv(timeout = timeout)
-                if res == None:
-                    self.buffer.extend(data)
-                    return None
-            except:
-                self.buffer.extend(data)
-                raise
-            n += len(res)
-            data.append(res)
+        # Keep track of how much data has been received
+        # It will be pasted together at the end if a
+        # timeout does not occur, or put into the tube buffer.
+        with self.timeout_scope(timeout):
+            while len(self.buffer) < numb:
+                self._fill(numb,timeout)
 
-        if numb < n:
-            s = data.pop()
-            delta = len(s) - (n - numb)
-            self.buffer.append(s[delta:])
-            data.append(s[:delta])
+        return self.buffer.get(numb)
 
-        return ''.join(data)
+    def recvuntil(self, delims, drop=False, timeout = None):
+        """recvuntil(delims, timeout = None) -> str
 
-    def recvuntil(self, delims, timeout = 'default'):
-        """recvuntil(delims, timeout = 'default') -> str
+        Recieve data until one of `delims` is encountered.
 
-        Continue recieving until the recieved data ends with one of `delims`.
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
 
-        As a shorthand, ``delim`` may be used instead of ``(delim, )``.
+        arguments:
+            delims(str,tuple): String of delimiters characters, or list of delimiter strings.
+            drop(bool): Drop the ending.  If ``True`` it is removed from the end of the return value.
+
+        Raises:
+            :exc:`exceptions.EOFError` The connection is closed
+
+        Returns:
+            A string containing bytes received from the socket,
+            or ``''`` if a timeout occurred while waiting.
+
+        Examples:
+
+            >>> t = tube()
+            >>> t.recv_raw = lambda: "Hello World!"
+            >>> t.recvuntil(' ')
+            'Hello '
         """
 
-        if not hasattr(delims, '__iter__'):
-            delims = (delims,)
+        # Convert string into list of characters
+        delims = tuple(delims)
 
-        delimslen = max(len(delim) for delim in delims)
-
+        expr = re.compile('%s' % '|'.join(map(re.escape, delims)))
         data = ''
-        i = 0
-        while True:
-
-            try:
-                res = self._recv(timeout = timeout)
-                if res == None:
-                    self.buffer.append(data)
-                    return None
-            except:
-                self.buffer.append(data)
-                raise
-
-            data += res
-
-            for delim in delims:
-                j = data.find(delim, i)
-                if j > -1:
-                    j += len(delim)
-                    data, rest = data[:j], data[j:]
-                    self.buffer.append(rest)
-                    return data
-            if len(data) > delimslen:
-                i = len(data) - delimslen + 1
-
-    def recvlines(self, numlines, keepends = False, timeout = 'default'):
-        """recvlines(numlines, keepends = False) -> str list
-
-        Recieve `numlines` lines.  The lines are returned as a list.
-
-        Line breaks are not included unless `keepends` is set to :const:`True`.
-        """
-        data = []
-        for _ in xrange(numlines):
-            try:
-                res = self.recvuntil('\n', timeout = timeout)
-                if res == None:
-                    self.buffer.extend(data)
-                    return None
-            except:
-                self.buffer.extend(data)
-                raise
-            data.append(res)
-
-        if keepends:
-            return data
-
-        return [line[:-1] for line in data]
-
-    def recvline(self, delims = None, keepend = False, timeout = 'default'):
-        """recvline(delims = None, keepend = False) -> str
-
-        If `delims` is :const:`None`, then recieve and return exactly one line.
-        Otherwise, keep recieving lines until one is found which contains at
-        least of `delims`.  The last line recieved will be returned.
-
-        As a shorthand, ``delim`` may be used instead of ``(delim, )``.
-
-        Only includes the line break if `keepend` is set to :const:`True`.
-        """
-        if delims == None:
-            res = self.recvlines(1, keepends = keepend, timeout = timeout)
-            if res == None:
-                return None
-            return res[0]
-
-        if not hasattr(delims, '__iter__'):
-            delims = (delims,)
-
-        data = []
         while True:
             try:
-                res = self.recvuntil('\n', timeout = timeout)
-                if res == None:
-                    self.buffer.extend(data)
-                    return None
+                res = self.recv(timeout = timeout)
             except:
-                self.buffer.extend(data)
+                self.unrecv(data)
                 raise
-            if any(delim in res for delim in delims):
-                break
-            data.append(res)
 
-        if keepend:
-            return res
+            if data:
+                data += res
+            if not res:
+                self.unrecv(data)
+                return ''
 
-        return res[:-1]
+            match = expr.search(data)
+            if match:
+                self.unrecv(data[match.endpos:])
+                return data[:match.endpos]
 
-    def recvline_pred(self, pred, keepend = False, timeout = 'default'):
-        """recvline_pred(pred, keepend = False) -> str
+    def recvlines(self, numlines=sys.maxint, keep = False, timeout = None):
+        r"""recvlines(numlines = sys.maxint, keep = False, timeout = None) -> str list
 
-        Keep recieving lines until one, ``line``, is found such that
-        ``bool(pred(line)) == True``.  Returns the last line recieved.
+        Recieve up to ``numlines`` lines.
 
-        Only includes the line break if `keepend` is set to :const:`True`.
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
+
+        Arguments:
+            numlines(int): Maximum number of lines to receive
+            keep(bool): Keep newlines at the end of each line
+            timeout(int): Maximum timeout
+
+        Returns:
+            A list of lines received
+
+        Examples:
+
+            >>> t = tube()
+            >>> t.recv_raw = lambda: '\n'
+            >>> t.recvlines(3)
+            ['', '', '']
+            >>> t.recv_raw = lambda: 'Foo\nBar\nBaz\n'
+            >>> t.recvlines(3)
+            ['Foo', 'Bar', 'Baz']
+            >>> t.recvlines(3, True)
+            ['Foo\n', 'Bar\n', 'Baz\n']
         """
+        lines = []
+        with self.timeout_scope(timeout):
+            for _ in xrange(numlines):
+                try:
+                    res = self.recvline(keep=True, timeout=timeout)
+                except:
+                    self.unrecv(''.join(lines))
+                    raise
 
-        data = []
-        while True:
-            try:
-                res = self.recvuntil('\n', timeout = timeout)
-                if res == None:
-                    self.buffer.extend(data)
-                    return None
-                if pred(res):
+                if res:
+                    lines.append(res)
+                else:
                     break
-            except:
-                self.buffer.extend(data)
-                raise
-            data.append(res)
 
-        if keepend:
-            return res
+        if not keep:
+            lines = [lines.rstrip('\n') for line in lines]
 
-        return res[:-1]
+        return lines
 
-    def recvline_startswith(self, delims, keepend = False, timeout = 'default'):
-        """recvline_startswith(delims, keepend = False) -> str
+    def recvline(self, keep = False, timeout = None):
+        r"""recvline(keep = False) -> str
+
+        Receive a single line from the tube.
+
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
+
+        Arguments:
+            keep(bool): Keep the line ending
+            timeout(int): Timeout
+
+        Return:
+            All bytes received over the tube until the first
+            newline ``'\n'`` is received.  Optionally retains
+            the ending.
+        """
+        return self.recvuntil('\n', drop = not keep, timeout = timeout)
+
+    def recvline_pred(self, pred, keep = False, timeout = None):
+        r"""recvline_pred(pred, keep = False) -> str
+
+        Receive data until ``pred(line)`` returns a truthy value.
+        Drop all other data.
+
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
+
+        Arguments:
+            pred(callable): Function to call.  Returns the line for which
+                this function returns ``True``.
+
+        Examples:
+
+            >>> t = tube()
+            >>> t.recv_raw = lambda: "Foo\nBar\nBaz\n"
+            >>> t.recvline_pred(lambda line: line == "Bar")
+        """
+
+        tmpbuf = Buffer()
+        line   = ''
+        with self.timeout_scope(timeout):
+            while True:
+                try:
+                    line = self.recvline('\n', keep=True)
+                except:
+                    self.buffer.add(tmpbuf)
+                    raise
+
+                if not line:
+                    self.buffer.add(tmpbuf)
+                    return ''
+
+                elif not pred(line.rstrip):
+                    tmpbuf.add(line)
+
+                break
+
+
+        if keep:
+            return line
+
+        return line.rstrip('\n')
+
+    def recvline_startswith(self, delims, keep = False, timeout = None):
+        """recvline_startswith(delims, keep = False, timeout = None) -> str
 
         Keep recieving lines until one is found that starts with one of
         `delims`.  Returns the last line recieved.
 
-        As a shorthand, ``delim`` may be used instead of ``(delim, )``.
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
 
-        Only includes the line break if `keepend` is set to :const:`True`.
+        Arguments:
+            delims(str,tuple): List of strings to search for, or string of single characters
+            keep(bool): Return lines with newlines if ``True``
+            timeout(int): Timeout, in seconds
+
+        Returns:
+            The first line received which starts with a delimiter in ``delims``.
+
+        Examples:
+
+            >>> t = tube()
+            >>> t.recv_raw = lambda: "Hello\nWorld\nXylophone\n"
+            >>> t.recvline_startswith('WXYZ')
+            'World'
+            >>> t.recvline_startswith('WXYZ', True)
+            'Xylophone\n'
         """
+        return recvline_pred(lambda line: any(map(line.startswith, tuple(delims))),
+                             keep=keep,
+                             timeout=timeout)
 
-        if not hasattr(delims, '__iter__'):
-            delims = (delims,)
+    def recvline_endswith(self, delims, keep = False, timeout = None):
+        """recvline_endswith(delims, keep = False, timeout = None) -> str
 
-        data = []
-        while True:
-            try:
-                res = self.recvuntil('\n', timeout = timeout)
-                if res == None:
-                    self.buffer.extend(data)
-                    return None
-            except:
-                self.buffer.extend(data)
-                raise
-            if any(res.startswith(delim) for delim in delims):
-                break
-            data.append(res)
+        Keep recieving lines until one is found that starts with one of
+        `delims`.  Returns the last line recieved.
 
-        if keepend:
-            return res
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
 
-        return res[:-1]
+        See :meth:`recvline_startswith` for more details.
 
-    def recvline_endswith(self, delims, keepend = False, timeout = 'default'):
-        """recvline_endswith(delims, keepend = False) -> str
+        Examples:
 
-        Keep recieving lines until one is found that ends with one of `delims`.
-        Returns the last line recieved.
-
-        As a shorthand, ``delim`` may be used instead of ``(delim, )``.
-
-        Only includes the line break if `keepend` is set to :const:`True`.
+            >>> t = tube()
+            >>> t.recv_raw = lambda: 'Foo\nBar\nBaz\nKaboodle\n'
+            >>> t.recvline_endswith('r')
+            'Bar'
+            >>> t.recvline_endswth('abcde', True)
+            'Kaboodle\n'
         """
+        return recvline_pred(lambda line: any(map(line.endswith, tuple(delims))),
+                             keep=keep,
+                             timeout=timeout)
 
-        if not hasattr(delims, '__iter__'):
-            delims = (delims,)
-
-        data = []
-        while True:
-            try:
-                res = self.recvuntil('\n', timeout = timeout)
-                if res == None:
-                    self.buffer.extend(data)
-                    return None
-            except:
-                self.buffer.extend(data)
-                raise
-            if any(res.endswith(delim) for delim in delims):
-                break
-            data.append(res)
-
-        if keepend:
-            return res
-
-        return res[:-1]
-
-    def recvregex(self, regex, exact = False, timeout = 'default'):
-        """recvregex(regex, exact = False, timeout = 'default') -> str
+    def recvregex(self, regex, exact = False, timeout = None):
+        """recvregex(regex, exact = False, timeout = None) -> str
 
         Wrapper around :func:`recvpred`, which will return when a regex
         matches the string in the buffer.
 
         By default :func:`re.RegexObject.search` is used, but if `exact` is
         set to True, then :func:`re.RegexObject.match` will be used instead.
+
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
         """
 
         if isinstance(regex, (str, unicode)):
@@ -380,16 +403,18 @@ class tube(object):
 
         return self.recvpred(pred, timeout = timeout)
 
-    def recvline_regex(self, regex, exact = False, keepend = False,
-                       eout = 'default'):
-        """recvregex(regex, exact = False, keepend = False,
-                     timeout = 'default') -> str
+    def recvline_regex(self, regex, exact = False, keep = False, timeeout = None):
+        """recvregex(regex, exact = False, keep = False,
+                     timeout = None) -> str
 
         Wrapper around :func:`recvline_pred`, which will return when a regex
         matches a line.
 
         By default :func:`re.RegexObject.search` is used, but if `exact` is
         set to True, then :func:`re.RegexObject.match` will be used instead.
+
+        If the request is not satisfied before ``timeout`` seconds pass,
+        all data is buffered and an empty string (``''``) is returned.
         """
 
         if isinstance(regex, (str, unicode)):
@@ -400,32 +425,19 @@ class tube(object):
         else:
             pred = regex.search
 
-        return self.recvline_pred(pred, keepend = keepend, timeout = timeout)
+        return self.recvline_pred(pred, keep = keep, timeout = timeout)
 
-    def recvrepeat(self, timeout = 'default'):
+    def recvrepeat(self, timeout = None):
         """recvrepeat()
 
         Receives data until a timeout or EOF is reached.
         """
 
-        timeout = _fix_timeout(timeout, self.timeout)
+        with self.timeout_scope(timeout):
+            while self._fill():
+                pass
 
-        if timeout == None:
-            timeout = 0.1
-
-        r = []
-        while True:
-            try:
-                s = self.recv(10000, timeout = timeout)
-            except EOFError:
-                break
-
-            if s == None:
-                break
-
-            r.append(s)
-
-        return ''.join(r)
+        return self.buffer.get()
 
     def recvall(self):
         """recvall() -> str
@@ -435,24 +447,21 @@ class tube(object):
 
         h = log.waitfor('Recieving all data')
 
-        l = 0
-        r = []
-        while True:
-            try:
-                s = self.recv(timeout = 0.1)
-            except EOFError:
-                break
+        l = len(self.buffer)
+        with self.timeout_scope('inf'):
+            data = 'yay truthy strings'
 
-            if s == None:
-                continue
+            while data:
+                try:
+                    data = self._fill()
+                except EOFError:
+                    break
+                l += len(data)
+                h.status(misc.size(l))
 
-            r.append(s)
-            l += len(s)
-            h.status(misc.size(l))
+        h.success("Done (%s)" % misc.size(l))
 
-        h.success()
-
-        return ''.join(r)
+        return self.buffer.get()
 
     def send(self, data):
         """send(data)
@@ -464,21 +473,21 @@ class tube(object):
         connection, it raises and :exc:`exceptions.EOFError`.
         """
 
-        if context.log_level <= log_levels.DEBUG:
-            for line in data.splitlines(True):
-                log.debug('Send:     %r' % line)
+        log.debug('Sent %#x bytes:' % len(data))
+        for line in data.splitlines(True):
+            log.indent(repr(line), level=logging.DEBUG)
         self.send_raw(data)
 
     def sendline(self, line):
-        """sendline(data)
+        r"""sendline(data)
 
-        Shorthand for ``send(data + '\\n')``.
+        Shorthand for ``send(data + '\n')``.
         """
 
         self.send(line + '\n')
 
-    def sendafter(self, delim, data, timeout = 'default'):
-        """sendafter(delim, data, timeout = 'default') -> str
+    def sendafter(self, delim, data, timeout = None):
+        """sendafter(delim, data, timeout = None) -> str
 
         A combination of ``recvuntil(delim, timeout)`` and ``send(data)``."""
 
@@ -486,8 +495,8 @@ class tube(object):
         self.send(data)
         return res
 
-    def sendlineafter(self, delim, data, timeout = 'default'):
-        """sendlineafter(delim, data, timeout = 'default') -> str
+    def sendlineafter(self, delim, data, timeout = None):
+        """sendlineafter(delim, data, timeout = None) -> str
 
         A combination of ``recvuntil(delim, timeout)`` and ``sendline(data)``."""
 
@@ -495,16 +504,16 @@ class tube(object):
         self.sendline(data)
         return res
 
-    def sendthen(self, delim, data, timeout = 'default'):
-        """sendthen(delim, data, timeout = 'default') -> str
+    def sendthen(self, delim, data, timeout = None):
+        """sendthen(delim, data, timeout = None) -> str
 
         A combination of ``send(data)`` and ``recvuntil(delim, timeout)``."""
 
         self.send(data)
         return self.recvuntil(delim, timeout)
 
-    def sendlinethen(self, delim, data, timeout = 'default'):
-        """sendlinethen(delim, data, timeout = 'default') -> str
+    def sendlinethen(self, delim, data, timeout = None):
+        """sendlinethen(delim, data, timeout = None) -> str
 
         A combination of ``sendline(data)`` and ``recvuntil(delim, timeout)``."""
 
@@ -524,25 +533,24 @@ class tube(object):
 
         log.info('Switching to interactive mode')
 
-        go = [True]
-        def recv_thread(go):
-            while go[0]:
+        go = threading.Event()
+        def recv_thread():
+            while not go.isSet():
                 try:
                     cur = self.recv(timeout = 0.05)
-                    if cur == None:
-                        continue
-                    sys.stdout.write(cur)
-                    sys.stdout.flush()
+                    if cur:
+                        sys.stdout.write(cur)
+                        sys.stdout.flush()
                 except EOFError:
                     log.info('Got EOF while reading in interactive')
                     break
 
-        t = context.thread(target = recv_thread, args = (go,))
+        t = context.thread(target = recv_thread)
         t.daemon = True
         t.start()
 
         try:
-            while go[0]:
+            while not go.isSet():
                 if term.term_mode:
                     data = term.readline.readline(prompt = prompt, float = True)
                 else:
@@ -552,12 +560,13 @@ class tube(object):
                     try:
                         self.send(data)
                     except EOFError:
-                        go[0] = False
+                        go.set()
                         log.info('Got EOF while sending in interactive')
                 else:
-                    go[0] = False
+                    go.set()
         except KeyboardInterrupt:
             log.info('Interrupted')
+            go.set()
 
         while t.is_alive():
             t.join(timeout = 0.1)
@@ -679,7 +688,7 @@ class tube(object):
         then there will be no timeout.
         """
 
-        self.timeout = _fix_timeout(timeout, context.timeout)
+        self.timeout = timeout
         self.settimeout_raw(self.timeout)
 
     def shutdown(self, direction = "send"):
@@ -754,7 +763,7 @@ class tube(object):
         of a closed connection it should raise an :exc:`exceptions.EOFError`.
         """
 
-        raise NotImplementedError()
+        raise EOFError('Not implemented')
 
     def send_raw(self, data):
         """send_raw(data)
@@ -765,7 +774,7 @@ class tube(object):
         more, because of a close tube.
         """
 
-        raise NotImplementedError()
+        raise EOFError('Not implemented')
 
     def settimeout_raw(self, timeout):
         """settimeout_raw(timeout)
@@ -775,6 +784,19 @@ class tube(object):
         """
 
         raise NotImplementedError()
+
+    def timeout_change(self, timeout):
+        """
+        Informs the raw layer of the tube that the timeout has changed.
+
+        Should not be called directly.
+
+        Inherited from :class:`Timeout`.
+        """
+        try:
+            self.settimeout_raw(timeout)
+        except NotImplementedError:
+            pass
 
     def can_recv_raw(self, timeout):
         """can_recv_raw(timeout) -> bool

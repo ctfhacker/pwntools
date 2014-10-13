@@ -23,27 +23,90 @@ __all__ = [
     'error', 'bug', 'fatal',
 
     # spinner-functions (loglevel == INFO)
-    'waitfor', 'status', 'done_success', 'done_failure',
+    'waitfor', 'progress'
 ]
 
-import threading, sys, time, random, warnings, traceback, collections
-from .context import context, _Thread
-from . import term, log_levels, exception
-from .term import text, spinners
+import logging, re, threading, sys, random
+from .context import context, Thread
+from .term    import spinners, text
+from .        import term
 
-import logging
+class Logger(logging.getLoggerClass()):
+    """
+    Specialization of ``logging.Logger`` which uses
+    ``pwnlib.context.context.log_level`` to infer verbosity.
 
-class Logger(logging.Logger):
+    Also adds some ``pwnlib`` flavor via:
+
+    * ``success``
+    * ``failure``
+    * ``indented``
+
+    Additionally adds ``pwnlib``-specific information for coloring and indentation.
+
+    Finally, it permits prepending a string to each message, by means of
+    :attr:`msg_prefix`.  This is leveraged for progress messages.
+    """
     def __init__(self, *args, **kwargs):
         super(Logger, self).__init__(*args, **kwargs)
-    def getEffectiveLevel(self):
-        return context.log_level
-    def setLevel(self, lvl):
-        context.log_level = lvl
+        self.msg_prefix = ''
 
-class TermHandler(logging.Handler):
-    def emit(self, record):
-        _put(log_level)
+    def getEffectiveLevel(self):
+        normLevel = super(Logger, self).getEffectiveLevel()
+        return min(normLevel, context.log_level)
+
+    def __log(self, level, msg, args, kwargs, symbol='', stop=False):
+        """
+        Creates a named logger, which captures metadata about the
+        calling log level, line prefixes, and desired color information.
+
+        Note:
+            It's important that only metadata be added to the record, and
+            that the message is not changed.
+        """
+        extra = kwargs.get('extra', {})
+        extra.setdefault('pwnlib_symbol', symbol)
+        extra.setdefault('pwnlib_stop', stop)
+        kwargs['extra'] = extra
+
+        super(Logger,self).log(level, self.msg_prefix + msg, *args, **kwargs)
+
+    def indented(self, m, level=logging.INFO, *a, **kw):
+        return self.__log(level, m, a, kw)
+
+    def error(self, m, *a, **kw):
+        return self.__log(logging.ERROR, m, a, kw, text.on_red('ERROR'))
+
+    def warn(self, m, *a, **kw):
+        return self.__log(logging.WARN, m, a, kw, text.bold_yellow('!'))
+    def info(self, m, *a, **kw):
+        return self.__log(logging.INFO, m, a, kw, text.bold_blue('*'))
+
+    def success(self, m='Done', *a, **kw):
+        return self.__log(logging.INFO, m, a, kw, text.bold_green('+'), True)
+
+    def failure(self, m='Failed', *a, **kw):
+        return self.__log(logging.ERROR, m, a, kw, text.bold_red('-'), True)
+
+    def debug(self, m, *a, **kw):
+        return self.__log(logging.DEBUG, m, a, kw, text.bold_red('DEBUG'), True)
+
+    def waitfor(self, *args, **kwargs):
+        """
+        Wrapper around :func:`progress` to enable legacy compatibility with invoking
+        ``log.waitfor``.
+        """
+        return progress(*args, **kwargs)
+
+    # Aliases
+    indent = indented
+    warning = warn
+    status = info
+    output = info
+    done_success = success
+    done_failure = failure
+
+
 
 class StdoutHandler(logging.Handler):
     """
@@ -59,267 +122,235 @@ class StdoutHandler(logging.Handler):
         self.release()
 
 
-class TermPrefixIndentFormatter(logging.Formatter):
+class PrefixIndentFormatter(logging.Formatter):
     """
     Logging formatter which performs prefixing based on a pwntools-
     specific key, as well as indenting all secondary lines.
+
+    Specifically, it performs the following actions:
+
+    * If the record contains the attribute ``pwnlib_symbol``,
+      it is prepended to the message.
+    * The message is prefixed such that it starts on column four.
+    * If the message spans multiple lines they are split, and all subsequent
+      lines are indented.
     """
-    def __init__(self,*args,**kwargs):
-        super(TermColorIndentFormatter, self).__init__(*args,**kwargs)
+
+    # Indentation from the left side of the terminal.
+    # All log messages will be indented at list this far.
+    indent    = '    '
+
+    # Newline, followed by an indent.  Used to wrap multiple lines.
+    nlindent  = '\n' + indent
+
+    def __init__(self, *args, **kwargs):
+        super(PrefixIndentFormatter, self).__init__(*args,**kwargs)
+
 
     def format(self, record):
-        msg = super(TermColorIndentFormatter, self).format(record)
+        msg = super(PrefixIndentFormatter, self).format(record)
 
-        try: msg = record.pwn_prefix + msg
-        except AttributeError: raise
+        # Get the per-record prefix second, adjust it to the same
+        # width as normal indentation.
+        symbol = self.indent
+        if record.pwnlib_symbol:
+            symbol = '[%s] ' % record.pwnlib_symbol
 
-        msg = nlindent.join(msg.splitlines())
+
+        msg     = symbol + msg
+
+        # Join all of the lines together so that second lines
+        # are properly wrapped
+        msg = self.nlindent.join(msg.splitlines())
 
         return msg
 
-indent    = '    '
-nlindent  = '\n' + indent
-logger    = Logger('pwn')
+
+##
+# This following snippet probably belongs in pwnlib.term.text, but someone
+# decided that it should be a magic module, so I don't want to mess with it.
+##
+
+# Matches ANSI escape codes
+ansi_escape = re.compile(r'\x1b[^m]*m')
+
+def ansilen(sz):
+    """
+    Length helper which does not count ANSI escape codes.
+
+    Regex stolen from stackoverflow.com/q/14693701
+    """
+    return len(ansi_escape.sub('', sz))
+
+
+#
+# Note that ``Logger`` inherits from ``logging.getLoggerClass()``,
+# and always invokes the parent class's routines to enrich the data.
+#
+# Ensure all other instantiated loggers also enrich the data, so that
+# our custom handlers could (theoretically) be used with those.
+#
+logging.setLoggerClass(Logger)
+
+
+#
+# By default, everything will log to the console.
+#
+# Logging cascades upward through the heirarchy,
+# so the only point that should ever need to be
+# modified is the root 'pwn' logger.
+#
+# For example:
+#     map(logger.removeHandler, logger.handlers)
+#     logger.addHandler(myCoolPitchingHandler)
+#
 console   = StdoutHandler()
-console.setFormatter(TermColorIndentFormatter('%(message)s'))
+console.setFormatter(PrefixIndentFormatter())
+
+#
+# The root 'pwnlib' handler is declared here, and attached to the
+# console.  To change the target of all 'pwntools'-specific
+# logging, only this logger needs to be changed.
+#
+logger    = logging.getLogger('pwnlib')
 logger.addHandler(console)
 
-def indented(msg):  logger.info(msg,    extra={'pwn_prefix': indent})
-def error(msg):     logger.error(msg,   extra={'pwn_prefix': '[' + text.bold_red('-')     + '] '})
-def warn(msg):      logger.warning(msg, extra={'pwn_prefix': '[' + text.bold_yellow('!')  + '] '})
-def info(msg):      logger.info(msg,    extra={'pwn_prefix': '[' + text.bold_blue('+')    + '] '})
-def success(msg):   logger.info(msg,    extra={'pwn_prefix': '[' + text.bold_green('+')   + '] '})
-def failure(msg):   logger.info(msg,    extra={'pwn_prefix': '[' + text.on_red('-')       + '] '})
-def debug(msg):     logger.debug(msg,   extra={'pwn_prefix': '[' + text.bold_red('DEBUG') + '] '})
 
+#
+# Handle legacy log invocation on the 'log' module itself.
+# These are so that things don't break.
+#
+# The correct way to perform logging moving forward for an
+# exploit is:
+#
+#     #!/usr/bin/env python
+#     context(...)
+#     log = logging.getLogger('pwnlib.exploit.name')
+#     log.info("Hello, world!")
+#
+# And for all internal pwnlib modules, replace:
+#
+#     from . import log
+#
+# With
+#
+#     import logging
+#     logging.getLogger(__name__) # => 'pwnlib.tubes.ssh'
+#
+indented = logger.indented
+error    = logger.error
+warn     = logger.warn
+warning  = logger.warning
+info     = logger.info
+status   = logger.status
+success  = logger.success
+failure  = logger.failure
+output   = logger.output
+debug    = logger.debug
+done_success = logger.done_success
+done_failure = logger.done_failure
+
+
+#
+# Handle legacy log levels which really should be exceptions
+#
 def bug(msg):       raise Exception(msg)
 def fatal(msg):     raise SystemExit(msg)
-warning = warn
 
+class TermPrefixIndentFormatter(PrefixIndentFormatter):
+    """
+    Log formatter for progress aka 'waitfor' log message, when
+    using terminal mode.
 
-#******************************************************************************
-#                               LEGACY PAST HERE
-#******************************************************************************
+    Performs a subset of the formatting of the parent class while
+    the spinner is running since the spinner should replace the
+    prefix.
 
+    Otherwise, performs a pass-through.
+    """
+    def format(self, record):
+        # Don't do level-specific prefixes unless it's final
+        if not getattr(record, 'pwnlib_stop', False):
+            return self.nlindent.join(record.msg.splitlines())
 
-_lock = threading.Lock()
-_last_was_nl = True
-def _put(log_level, string = '', frozen = True, float = False, priority = 10, indent = 0):
-    global _last_was_nl
-    if context.log_level > log_level:
-        return _dummy_handle
-    elif term.term_mode:
-        return term.output(str(string), frozen = frozen, float = float,
-                           priority = priority, indent = indent)
-    else:
-        string = str(string)
-        if not string:
-            return _dummy_handle
-        if _last_was_nl:
-            string = ' ' * indent + string
-            _last_was_nl = False
-        if string[-1] == '\n':
-            _last_was_nl = True
-        if indent:
-            string = string[:-1].replace('\n', '\n' + ' ' * indent) + string[-1]
-        sys.stderr.write(string)
-        return _dummy_handle
+        # Return the original formatted message
+        return super(TermPrefixIndentFormatter, self).format(record)
 
-class _DummyHandle(object):
-    def update(self, _string):
-        pass
+class TermHandler(logging.Handler):
+    """
+    Log handler for a progress aka 'waitfor' log message, when
+    using terminal mode.
 
-    def freeze(self):
-        pass
+    Creates a thread to animate the spinner in :func:`spin`,
+    and updates the message following it whenever a message
+    is emitted.
+    """
+    def __init__(self, msg='', *args, **kwargs):
+        """
+        Initialize a TermHandler with a message to be prepended
+        to all log message.
 
-    def delete(self):
-        pass
-_dummy_handle = _DummyHandle()
+        Arguments:
+            msg(str): Message to prepend to all log messages
+        """
+        super(TermHandler, self).__init__(*args, **kwargs)
+        self.stop    = threading.Event()
+        self.spinner = context.thread(target=self.spin, args=[term.output('')])
+        self.spinner.daemon = True
+        self.spinner.start()
+        self._handle = term.output('')
 
+    def emit(self, record):
+        if getattr(record, 'pwnlib_stop', False):
+            self.stop.set()
+            self.spinner.join()
 
-_waiter_stack = []
-class _Waiter(object):
-    def _remove(self):
-        while self in _waiter_stack:
-            _waiter_stack.remove(self)
+        msg = self.format(record)
+        self._handle.update(msg + '\n')
 
-class _DummyWaiter(_Waiter):
-    def status(self, _):
-        pass
+    def spin(self, handle):
+        state  = 0
+        states = random.choice(spinners.spinners)
 
-    def success(self, string = 'OK'):
-        pass
+        while not self.stop.wait(0.1):
+            handle.update('[' + text.bold_blue(states[state]) + '] ')
+            state += 1
+            state %= len(states)
+        handle.update('')
 
-    def failure(self, string = 'FAILED!'):
-        pass
+def waitfor(msg, status = ''):
+    """waitfor(msg, status = '', spinner = None) -> Logger
 
-class _SimpleWaiter(_Waiter):
-    def __init__(self, msg, _spinner, log_level):
-        self.log_level = log_level
-        info('%s...' % msg, log_level = self.log_level)
-        self.msg = msg
-        self.last_update = 0
-
-    def status(self, string):
-        t = time.time()
-        if self.last_update + 1 <= t:
-            self.last_update = t
-            info('%s: %s' % (self.msg, string), log_level = self.log_level)
-
-    def success(self, string = 'OK'):
-        success('%s: %s' % (self.msg, string), log_level = self.log_level)
-        self._remove()
-
-    def failure(self, string = 'FAILED!'):
-        failure('%s: %s' % (self.msg, string), log_level = self.log_level)
-        self._remove()
-
-
-class _Spinner(_Thread):
-    def __init__(self, spinner, log_level):
-        super(_Spinner, self).__init__()
-        self.spinner = spinner
-        self.idx = 0
-        self.daemon = True
-        self.sys = sys
-        self.handle = _put(log_level, '', frozen = False)
-        self.lock = threading.Lock()
-        self.running = True
-        self.start()
-
-    def run(self):
-        while True:
-            # interpreter shutdown
-            if not self.sys:
-                break
-            with self.lock:
-                if self.running:
-                    self.handle.update(
-                        text.bold_blue(self.spinner[self.idx])
-                        )
-                else:
-                    break
-            self.idx = (self.idx + 1) % len(self.spinner)
-            time.sleep(0.1)
-
-    def stop(self, string):
-        self.running = False
-        with self.lock:
-            self.handle.update(string)
-            self.handle.freeze()
-
-
-class _TermWaiter(_Waiter):
-    def __init__(self, msg, spinner, log_level):
-        with _lock:
-            self.hasmsg = msg != ''
-            _put(log_level, '[')
-            if spinner is None:
-                spinner = random.choice(spinners.spinners)
-            self.spinner = _Spinner(spinner, log_level)
-            _put(log_level, '] %s' % msg)
-            self.stat = _put(log_level, '', frozen = False)
-            _put(log_level, '\n')
-
-    def status(self, string):
-        if self.hasmsg and string:
-            string = ': ' + string
-        self.stat.update(string)
-
-    def success(self, string = 'OK'):
-        if self.hasmsg and string:
-            string = ': ' + string
-        self.spinner.stop(text.bold_green('+'))
-            self.stat.update(string)
-        self.stat.freeze()
-        self._remove()
-
-    def failure(self, string = 'FAILED!'):
-        if self.hasmsg and string:
-            string = ': ' + string
-        self.spinner.stop(text.bold_red('-'))
-        self.stat.update(string)
-        self.stat.freeze()
-        self._remove()
-
-
-def waitfor(msg, status = '', spinner = None, log_level = log_levels.INFO):
-    """waitfor(msg, status = '', spinner = None) -> waiter
-
-    Starts a new progress indicator which includes a spinner
-    if :data:`pwnlib.term.term_mode` is enabled. By default it
-    outputs to loglevel :data:`pwnlib.log_levels.INFO`.
+    Starts a new progress logger which includes a spinner
+    if :data:`pwnlib.term.term_mode` is enabled.
 
     Args:
       msg (str): The message of the spinner.
       status (str): The initial status of the spinner.
-      spinner (list): This should either be a list of strings or None.
-         If a list is supplied, then a either element of the list
-         is shown in order, with an update occuring every 0.1 second.
-         Otherwise a random spinner is chosen.
-      log_level(int): The log level to output the text to.
 
     Returns:
-      A waiter-object that can be updated using :func:`status`, :func:`done_success` or :func:`done_failure`.
+      A Logger which can be interacted with in the normal ways via
+      ``info`` or ``warn`` etc.
+
+      The spinner is stopped once ``success`` or ``failure`` are invoked
+      on the ``Logger``.
     """
+    # Create the logger
+    l = logging.getLogger('pwnlib.spinner.%i' % waitfor.spin_count)
+    waitfor.spin_count += 1
 
-    if context.log_level > log_level:
-        h = _DummyWaiter()
-    elif term.term_mode:
-        h = _TermWaiter(msg, spinner, log_level)
-    else:
-        h = _SimpleWaiter(msg, spinner, log_level)
+    # Set the prefix on the logger itself
+    l.msg_prefix = msg + ': '
 
-    if status:
-        h.status(status)
+    # If we're doing terminal-aware stuff, it'll use the spinners
+    # Otherwise, the message will propagate to the root handler
+    if term.term_mode:
+        h = TermHandler()
+        h.setFormatter(TermPrefixIndentFormatter())
+        l.addHandler(h)
+        l.propagate = False
 
-    _waiter_stack.append(h)
-    return h
-
-
-def status(string = '', waiter = None):
-    """Updates the status-text of waiter-object without completing it.
-
-    Args:
-      string (str): The status message.
-      waiter: An optional waiter to update. If none is supplied, the last created one is used.
-    """
-    if waiter == None and _waiter_stack:
-        waiter = _waiter_stack[-1]
-
-    if waiter == None:
-        raise Exception('Not waiting for anything')
-
-    waiter.status(string)
-
-
-def done_success(string = 'Done', waiter = None):
-    """Updates the status-text of a waiter-object, and then sets it to completed in a successful manner.
-
-    Args:
-      string (str): The status message.
-      waiter: An optional waiter to update. If none is supplied, the last created one is used.
-    """
-    if waiter == None and _waiter_stack:
-        waiter = _waiter_stack[-1]
-
-    if waiter == None:
-        raise Exception('Not waiting for anything')
-
-    waiter.success(string)
-
-
-def done_failure(string = 'FAILED!', waiter = None):
-    """Updates the status-text of a waiter-object, and then sets it to completed in a failed manner.
-
-    Args:
-      string (str): The status message.
-      waiter: An optional waiter to update. If none is supplied, the last created one is used.
-    """
-    if waiter == None and _waiter_stack:
-        waiter = _waiter_stack[-1]
-
-    if waiter == None:
-        raise Exception('Not waiting for anything')
-
-    waiter.failure(string)
+    l.info(status)
+    return l
+waitfor.spin_count = 0
+progress = waitfor

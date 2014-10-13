@@ -129,25 +129,67 @@ class _Tls_DictStack(threading.local, _DictStack):
     pass
 
 
-class _Thread(threading.Thread):
+class Thread(threading.Thread):
     """
-    Context-aware thread.
+    Context-aware thread.  For convenience and avoiding confusion with
+    :class:`threading.Thread`, this object can be instantiated via
+    :func:`pwnlib.context.thread`.
+
     Saves a copy of the context when instantiated (at ``__init__``)
     and updates the new thread's context before passing control
-    to the user code.
+    to the user code via ``run`` or ``target=``.
 
-    This is implemented by hooking `threading.Thread._Thread_bootstrap`,
-    which is called before user code.
+    Examples:
+
+        .. doctest::
+
+            >>> context
+            Context()
+            >>> context(arch='arm')
+            Context(arch = 'arm')
+            >>> def p():
+            ...     print context
+            ...     context.arch = 'mips'
+            ...     print context
+            ...
+            >>> t = threading.Thread(target=p)
+            >>> _=(t.start(), t.join())
+            Context()
+            Context(arch = 'mips')
+            >>> context
+            Context(arch = 'arm')
+            >>> t = pwnlib.context.Thread(target=p)
+            >>> _=(t.start(), t.join())
+            Context(arch = 'arm')
+            Context(arch = 'mips')
+            >>> context
+            Context()
+
+    Implementation Details:
+
+        This class implemented by hooking the private function
+        :func:`threading.Thread._Thread_bootstrap`, which is called before
+        passing control to :func:`threading.Thread.run`.
+
+        This could be done by overriding ``run`` itself, but we would have to
+        ensure that all uses of the class would only ever use the keyword
+        ``target=`` for ``__init__``, or that all subclasses invoke
+        ``super(Subclass.self).set_up_context()`` or similar.
     """
     def __init__(self, *args, **kwargs):
-        super(_Thread, self).__init__(*args, **kwargs)
+        super(Thread, self).__init__(*args, **kwargs)
         self.old = context.copy()
-        self.__old_bootstrap = self._Thread__bootstrap
-        self._Thread__bootstrap = self.__new_bootstrap
 
-    def __new_bootstrap(self):
+    def __bootstrap(self):
+        """
+        Implementation Details:
+            This only works because the class is named ``Thread``.
+            If its name is changed, we have to implement this hook
+            differently.
+        """
         context.update(**self.old)
-        return self.__old_bootstrap()
+        super(Thread, self).__bootstrap()
+
 
 class Context(object):
     r"""
@@ -219,6 +261,14 @@ class Context(object):
             >>> nop()
             00f020e3
     """
+
+    #
+    # Use of 'slots' is a heavy-handed way to prevent accidents
+    # like 'context.architecture=' instead of 'context.arch='.
+    #
+    # Setting any properties on a Context object will throw an
+    # exception.
+    #
     __slots__ = '_tls',
 
     #: Valid values for :class:`pwnlib.context.Context`
@@ -226,7 +276,7 @@ class Context(object):
         'os': 'linux',
         'arch': 'x86',
         'endian': 'little',
-        'timeout': 1,
+        'timeout': 'default',
         'log_level': logging.INFO
     }
 
@@ -271,11 +321,6 @@ class Context(object):
         self._tls = _Tls_DictStack(_defaultdict2(Context.defaults))
         self.update(**kwargs)
 
-    def __call__(self, **kwargs):
-        """
-        Legacy compatibility wrapper for :func:`update`.
-        """
-        return self.update(**kwargs)
 
     def copy(self):
         """
@@ -363,7 +408,7 @@ class Context(object):
         class LocalContext(object):
             def __enter__(a):
                 self._tls.push()
-                self.update(**{k:v for k,v in kwargs if v is not None})
+                self.update(**{k:v for k,v in kwargs.items() if v is not None})
                 return self
 
             def __exit__(a, *b, **c):
@@ -390,32 +435,10 @@ class Context(object):
 
         Examples:
 
-            .. doctest::
-
-                >>> context
-                Context()
-                >>> context(arch='arm')
-                Context(arch = 'arm')
-                >>> def p():
-                ...     print context
-                ...     context.arch = 'mips'
-                ...     print context
-                ...
-                >>> t = threading.Thread(target=p)
-                >>> _=(t.start(), t.join())
-                Context()
-                Context(arch = 'mips')
-                >>> context
-                Context(arch = 'arm')
-                >>> t = context.thread(target=p)
-                >>> _=(t.start(), t.join())
-                Context(arch = 'arm')
-                Context(arch = 'mips')
-                >>> context
-                Context()
-
+            See the documentation for :class:`pwnlib.context.Thread` for
+            examples.
         """
-        return _Thread(*args, **kwargs)
+        return Thread(*args, **kwargs)
 
     @property
     def arch(self):
@@ -575,8 +598,7 @@ class Context(object):
 
             .. doctest::
 
-                >>> context.endianness = 'big'
-                >>> context.endian == 'big'
+                >>> context.endian == context.endianness
                 True
         """
         return self.endianness
@@ -622,18 +644,32 @@ class Context(object):
 
         The default value is ``1``.
 
+        Any floating point value is accepted, as well as the special
+        string ``'inf'`` which implies that a timeout can never occur.
+
+
         Examples:
 
             .. doctest::
 
                 >>> context.timeout == 1
                 True
+                >>> context.timeout = 'inf'
+                >>> context.timeout > 2**256
+                True
+                >>> context.timeout - 30
+                inf
         """
         return self._tls['timeout']
 
     @timeout.setter
     def timeout(self, value):
-        self._tls['timeout'] = float(value)
+        value = float(value)
+
+        if value < 0:
+            raise ValueError("timeout must not be negative (%r)" % value)
+
+        self._tls['timeout'] = value
 
     @property
     def bits(self):
@@ -693,23 +729,6 @@ class Context(object):
     def bytes(self, value):
         self.bits = 8*value
 
-    @property
-    def word_size(self):
-        """
-        Legacy mapping.  Use :attr:`bits`.
-
-        Examples:
-
-            .. doctest::
-
-                >>> context.bits == context.word_size
-                True
-        """
-        return self.bits
-
-    @word_size.setter
-    def word_size(self, value):
-        self.bits = value
 
     @property
     def log_level(self):
@@ -802,9 +821,42 @@ class Context(object):
 
         self._tls['signed'] = bool(signed)
 
+
+    #*************************************************************************
+    #                           DEPRECATED FIELDS
+    #*************************************************************************
+    #
+    # These fields are deprecated, but support is ensured for backward
+    # compatibility.
+    #
+    #*************************************************************************
+
+    def __call__(self, **kwargs):
+        """
+        .. deprecated::
+            Legacy compatibility wrapper for :func:`update`.
+            Use that instead.
+        """
+        return self.update(**kwargs)
+
+    @property
+    def word_size(self):
+        """
+        .. deprecated::
+            Legacy support.  Use :attr:`bits`.
+        """
+        return self.bits
+
+    @word_size.setter
+    def word_size(self, value):
+        self.bits = value
+
     @property
     def signedness(self):
-        """Legacy compatibility.  Equivalent to :attr:`signed`"""
+        """
+        .. deprecated::
+            Legacy support.  Use :attr:`signed` instead.
+        """
         return self.signed
     @signedness.setter
     def signedness(self, value):

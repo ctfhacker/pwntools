@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import os, tempfile, urllib2
-from .. import log
+import os, tempfile, urllib2, logging
+log = logging.getLogger(__name__)
 
 # Using powers of ten instead of two,
 # since that's what bandwidth is measured in.

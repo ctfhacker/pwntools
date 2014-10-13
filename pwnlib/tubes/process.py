@@ -1,6 +1,7 @@
-from .. import log
 from .tube import tube
-import subprocess, fcntl, os, select
+import subprocess, fcntl, os, select, logging
+
+log = logging.getLogger(__name__)
 
 class process(tube):
     def __init__(self, args, shell = False, executable = None,

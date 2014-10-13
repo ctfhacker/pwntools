@@ -1,10 +1,12 @@
-import os, string, base64, paramiko, time, tempfile, sys, shutil, re
+import os, string, base64, paramiko, time, tempfile, sys, shutil, re, logging
 
-from .. import term, log
+from .. import term
 from ..context import context
 from ..util import hashes, misc
 from .sock    import sock
 from .process import process
+
+log = logging.getLogger('pwn.tubes.ssh')
 
 class ssh_channel(sock):
     def __init__(self, parent, process = None, tty = False, wd = None, env = None, timeout = 'default'):

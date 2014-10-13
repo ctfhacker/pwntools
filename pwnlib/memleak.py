@@ -1,4 +1,5 @@
-from . import log
+import logging
+log = logging.getLogger(__name__)
 
 class MemLeak(object):
     """MemLeak is a caching and heuristic tool for exploiting memory leaks.

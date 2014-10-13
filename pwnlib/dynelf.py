@@ -1,4 +1,7 @@
-from . import elf, log, memleak
+from . import elf, memleak
+import logging
+
+log = logging.getLogger('pwn.dynelf')
 
 def sysv_hash(symbol):
     """sysv_hash(str) -> int
