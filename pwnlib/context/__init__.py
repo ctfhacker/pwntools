@@ -276,7 +276,7 @@ class Context(object):
         'os': 'linux',
         'arch': 'x86',
         'endian': 'little',
-        'timeout': 'default',
+        'timeout': 1,
         'log_level': logging.INFO
     }
 
@@ -611,7 +611,7 @@ class Context(object):
         """
         Operating system of the target machine.
 
-        The default value is specified in :attr:`defaults`.
+        The default value is ``linux``.
 
         Allowed values are listed in :attr:`oses`.
 

@@ -21,7 +21,7 @@ class listen(sock):
 
     def __init__(self, port, bindaddr = "0.0.0.0",
                  fam = "any", typ = "tcp",
-                 timeout = 'default'):
+                 timeout = None):
         super(listen, self).__init__(timeout)
 
         port = int(port)

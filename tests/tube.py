@@ -47,5 +47,5 @@ class SingleTube(tube.tube):
         return rv
 
 
-t = SingleTube('default')
+t = SingleTube(None)
 assert len(t.recvline()) == 100

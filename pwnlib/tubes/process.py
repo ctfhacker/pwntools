@@ -5,7 +5,7 @@ log = logging.getLogger(__name__)
 
 class process(tube):
     def __init__(self, args, shell = False, executable = None,
-                 cwd = None, env = None, timeout = 'default'):
+                 cwd = None, env = None, timeout = None):
         super(process, self).__init__(timeout)
 
         if executable:

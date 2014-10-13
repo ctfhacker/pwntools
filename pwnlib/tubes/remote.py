@@ -20,7 +20,7 @@ class remote(sock):
 
     def __init__(self, host, port,
                  fam = "any", typ = "tcp",
-                 timeout = 'default'):
+                 timeout = None):
         super(remote, self).__init__(timeout)
 
         self.rport = int(port)

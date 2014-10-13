@@ -10,7 +10,7 @@ class serialtube: pass
 #             convert_newlines = True,
 #             bytesize = 8, parity='N', stopbits=1, xonxoff = False,
 #             rtscts = False, dsrdtr = False,
-#             timeout = 'default'):
+#             timeout = None):
 #         super(serialtube, self).__init__(timeout)
 
 #         self.convert_newlines = convert_newlines
