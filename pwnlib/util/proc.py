@@ -136,8 +136,8 @@ def pid_by_name(name):
       List of PIDs matching `name` sorted by lifetime, youngest to oldest.
 
     Example:
-      >>> pid_by_name('init')
-      [1]
+      >>> 1 in pid_by_name('init')
+      True
 """
     return sorted([pid for pid in all_pids() if status(pid)['Name'] == name],
                   key = starttime, reverse = True)

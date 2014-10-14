@@ -21,29 +21,29 @@ def pack(number, word_size = None, endianness = None, sign = None):
         number (int): Number to convert
         word_size (int): Word size of the converted integer or the string 'all'.
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The packed number as a string.
 
     Examples:
-        >>> pack(0x414243, 24, 'big', 'signed')
+        >>> pack(0x414243, 24, 'big', True)
         'ABC'
-        >>> pack(0x414243, 24, 'little', 'signed')
+        >>> pack(0x414243, 24, 'little', True)
         'CBA'
-        >>> pack(0x814243, 24, 'big', 'unsigned')
+        >>> pack(0x814243, 24, 'big', False)
         '\\x81BC'
-        >>> pack(0x814243, 24, 'big', 'signed')
+        >>> pack(0x814243, 24, 'big', True)
         Traceback (most recent call last):
            ...
         ValueError: pack(): number does not fit within word_size
-        >>> pack(0x814243, 25, 'big', 'signed')
+        >>> pack(0x814243, 25, 'big', True)
         '\\x00\\x81BC'
-        >>> pack(-1, 'all', 'little', 'signed')
+        >>> pack(-1, 'all', 'little', True)
         '\\xff'
-        >>> pack(-256, 'all', 'big', 'signed')
+        >>> pack(-256, 'all', 'big', True)
         '\\xff\\x00'
-        >>> pack(0x0102030405, 'all', 'little', 'signed')
+        >>> pack(0x0102030405, 'all', 'little', True)
         '\\x05\\x04\\x03\\x02\\x01'
 """
 
@@ -55,8 +55,8 @@ def pack(number, word_size = None, endianness = None, sign = None):
     if not isinstance(number, (int,long)):
         raise ValueError("pack(): number must be of type (int,long) (got %r)" % type(number))
 
-    if sign not in ['signed', 'unsigned']:
-        raise ValueError("pack(): sign must be either 'signed' or 'unsigned' (got %r)" % sign)
+    if sign not in [True, False]:
+        raise ValueError("pack(): sign must be either True or False (got %r)" % sign)
 
     if endianness not in ['little', 'big']:
         raise ValueError("pack(): endianness must be either 'little' or 'big' (got %r)" % endianness)
@@ -68,13 +68,13 @@ def pack(number, word_size = None, endianness = None, sign = None):
         elif number > 0:
             word_size = ((number.bit_length() - 1) | 7) + 1
         else:
-            if sign == 'unsigned':
+            if sign == False:
                 raise ValueError("pack(): number does not fit within word_size")
             word_size = ((number + 1).bit_length() | 7) + 1
     elif not isinstance(word_size, (int, long)) or word_size <= 0:
         raise ValueError("pack(): word_size must be a positive integer or the string 'all'")
 
-    if sign == 'signed':
+    if sign == True:
         limit = 1 << (word_size-1)
         if not -limit <= number < limit:
             raise ValueError("pack(): number does not fit within word_size")
@@ -117,23 +117,23 @@ def unpack(data, word_size = None, endianness = None, sign = None):
         number (int): String to convert
         word_size (int): Word size of the converted integer or the string "all".
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The unpacked number.
 
     Examples:
-        >>> hex(unpack('\\xaa\\x55', 16, 'little', 'unsigned'))
+        >>> hex(unpack('\\xaa\\x55', 16, 'little', False))
         '0x55aa'
-        >>> hex(unpack('\\xaa\\x55', 16, 'big', 'unsigned'))
+        >>> hex(unpack('\\xaa\\x55', 16, 'big', False))
         '0xaa55'
-        >>> hex(unpack('\\xaa\\x55', 16, 'big', 'signed'))
+        >>> hex(unpack('\\xaa\\x55', 16, 'big', True))
         '-0x55ab'
-        >>> hex(unpack('\\xaa\\x55', 15, 'big', 'signed'))
+        >>> hex(unpack('\\xaa\\x55', 15, 'big', True))
         '0x2a55'
-        >>> hex(unpack('\\xff\\x02\\x03', 'all', 'little', 'signed'))
+        >>> hex(unpack('\\xff\\x02\\x03', 'all', 'little', True))
         '0x302ff'
-        >>> hex(unpack('\\xff\\x02\\x03', 'all', 'big', 'signed'))
+        >>> hex(unpack('\\xff\\x02\\x03', 'all', 'big', True))
         '-0xfdfd'
     """
 
@@ -166,13 +166,13 @@ def unpack(data, word_size = None, endianness = None, sign = None):
 
     number = number & ((1 << word_size) - 1)
 
-    if sign == "unsigned":
+    if sign == False:
         return number
-    elif sign == "signed":
+    elif sign == True:
         signbit = number & (1 << (word_size-1))
         return number - 2*signbit
     else:
-        raise ValueError("unpack(): sign must be either 'signed' or 'unsigned'")
+        raise ValueError("unpack(): sign must be either True or False")
 
 
 def unpack_many(data, word_size = None, endianness = None, sign = None):
@@ -186,21 +186,21 @@ def unpack_many(data, word_size = None, endianness = None, sign = None):
         number (int): String to convert
         word_size (int): Word size of the converted integers or the string "all".
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The unpacked numbers.
 
     Examples:
-        >>> map(hex, unpack_many('\\xaa\\x55\\xcc\\x33', 16, 'little', 'unsigned'))
+        >>> map(hex, unpack_many('\\xaa\\x55\\xcc\\x33', 16, 'little', False))
         ['0x55aa', '0x33cc']
-        >>> map(hex, unpack_many('\\xaa\\x55\\xcc\\x33', 16, 'big', 'unsigned'))
+        >>> map(hex, unpack_many('\\xaa\\x55\\xcc\\x33', 16, 'big', False))
         ['0xaa55', '0xcc33']
-        >>> map(hex, unpack_many('\\xaa\\x55\\xcc\\x33', 16, 'big', 'signed'))
+        >>> map(hex, unpack_many('\\xaa\\x55\\xcc\\x33', 16, 'big', True))
         ['-0x55ab', '-0x33cd']
-        >>> map(hex, unpack_many('\\xff\\x02\\x03', 'all', 'little', 'signed'))
+        >>> map(hex, unpack_many('\\xff\\x02\\x03', 'all', 'little', True))
         ['0x302ff']
-        >>> map(hex, unpack_many('\\xff\\x02\\x03', 'all', 'big', 'signed'))
+        >>> map(hex, unpack_many('\\xff\\x02\\x03', 'all', 'big', True))
         ['-0xfdfd']
     """
 
@@ -233,7 +233,7 @@ def p8(number, endianness = None, sign = None):
     Args:
         number (int): Number to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The packed number as a string"""
@@ -241,10 +241,10 @@ def p8(number, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _p8ls,
-            ("little", "unsigned"): _p8lu,
-            ("big",    "signed"  ): _p8bs,
-            ("big",    "unsigned"): _p8bu}[endianness, sign](number)
+    return {("little", True  ): _p8ls,
+            ("little", False): _p8lu,
+            ("big",    True  ): _p8bs,
+            ("big",    False): _p8bu}[endianness, sign](number)
 
 
 def p16(number, endianness = None, sign = None):
@@ -258,7 +258,7 @@ def p16(number, endianness = None, sign = None):
     Args:
         number (int): Number to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The packed number as a string"""
@@ -266,10 +266,10 @@ def p16(number, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _p16ls,
-            ("little", "unsigned"): _p16lu,
-            ("big",    "signed"  ): _p16bs,
-            ("big",    "unsigned"): _p16bu}[endianness, sign](number)
+    return {("little", True  ): _p16ls,
+            ("little", False): _p16lu,
+            ("big",    True  ): _p16bs,
+            ("big",    False): _p16bu}[endianness, sign](number)
 
 
 def p32(number, endianness = None, sign = None):
@@ -283,7 +283,7 @@ def p32(number, endianness = None, sign = None):
     Args:
         number (int): Number to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The packed number as a string"""
@@ -291,10 +291,10 @@ def p32(number, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _p32ls,
-            ("little", "unsigned"): _p32lu,
-            ("big",    "signed"  ): _p32bs,
-            ("big",    "unsigned"): _p32bu}[endianness, sign](number)
+    return {("little", True  ): _p32ls,
+            ("little", False): _p32lu,
+            ("big",    True  ): _p32bs,
+            ("big",    False): _p32bu}[endianness, sign](number)
 
 
 def p64(number, endianness = None, sign = None):
@@ -308,7 +308,7 @@ def p64(number, endianness = None, sign = None):
     Args:
         number (int): Number to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The packed number as a string"""
@@ -316,10 +316,10 @@ def p64(number, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _p64ls,
-            ("little", "unsigned"): _p64lu,
-            ("big",    "signed"  ): _p64bs,
-            ("big",    "unsigned"): _p64bu}[endianness, sign](number)
+    return {("little", True  ): _p64ls,
+            ("little", False): _p64lu,
+            ("big",    True  ): _p64bs,
+            ("big",    False): _p64bu}[endianness, sign](number)
 
 
 def u8(data, endianness = None, sign = None):
@@ -333,7 +333,7 @@ def u8(data, endianness = None, sign = None):
     Args:
         data (str): String to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The unpacked number"""
@@ -341,10 +341,10 @@ def u8(data, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _u8ls,
-            ("little", "unsigned"): _u8lu,
-            ("big",    "signed"  ): _u8bs,
-            ("big",    "unsigned"): _u8bu}[endianness, sign](data)
+    return {("little", True  ): _u8ls,
+            ("little", False): _u8lu,
+            ("big",    True  ): _u8bs,
+            ("big",    False): _u8bu}[endianness, sign](data)
 
 
 def u16(data, endianness = None, sign = None):
@@ -358,7 +358,7 @@ def u16(data, endianness = None, sign = None):
     Args:
         data (str): String to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The unpacked number"""
@@ -366,10 +366,10 @@ def u16(data, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _u16ls,
-            ("little", "unsigned"): _u16lu,
-            ("big",    "signed"  ): _u16bs,
-            ("big",    "unsigned"): _u16bu}[endianness, sign](data)
+    return {("little", True  ): _u16ls,
+            ("little", False): _u16lu,
+            ("big",    True  ): _u16bs,
+            ("big",    False): _u16bu}[endianness, sign](data)
 
 
 def u32(data, endianness = None, sign = None):
@@ -383,7 +383,7 @@ def u32(data, endianness = None, sign = None):
     Args:
         data (str): String to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The unpacked number"""
@@ -391,10 +391,10 @@ def u32(data, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _u32ls,
-            ("little", "unsigned"): _u32lu,
-            ("big",    "signed"  ): _u32bs,
-            ("big",    "unsigned"): _u32bu}[endianness, sign](data)
+    return {("little", True  ): _u32ls,
+            ("little", False): _u32lu,
+            ("big",    True  ): _u32bs,
+            ("big",    False): _u32bu}[endianness, sign](data)
 
 
 def u64(data, endianness = None, sign = None):
@@ -408,7 +408,7 @@ def u64(data, endianness = None, sign = None):
     Args:
         data (str): String to convert
         endianness (str): Endianness of the converted integer ("little"/"big")
-        sign (str): Signedness of the converted integer ("unsigned"/"signed")
+        sign (str): Signedness of the converted integer (False/True)
 
     Returns:
         The unpacked number"""
@@ -416,10 +416,10 @@ def u64(data, endianness = None, sign = None):
     endianness = endianness or context.endianness
     sign       = sign       or context.sign
 
-    return {("little", "signed"  ): _u64ls,
-            ("little", "unsigned"): _u64lu,
-            ("big",    "signed"  ): _u64bs,
-            ("big",    "unsigned"): _u64bu}[endianness, sign](data)
+    return {("little", True  ): _u64ls,
+            ("little", False): _u64lu,
+            ("big",    True  ): _u64bs,
+            ("big",    False): _u64bu}[endianness, sign](data)
 
 
 def _u8lu(data):
@@ -562,14 +562,14 @@ def make_packer(word_size = None, endianness = None, sign = None):
     Args:
         word_size (int): The word size to be baked into the returned packer or the string all.
         endianness (str): The endianness to be baked into the returned packer. ("little"/"big")
-        sign (str): The signness to be baked into the returned packer. ("unsigned"/"signed")
+        sign (str): The signness to be baked into the returned packer. (False/True)
 
     Returns:
         A function, which takes a single argument in the form of a number and returns a string
         of that number in a packed form.
 
     Examples:
-        >>> p = make_packer(32, 'little', 'unsigned')
+        >>> p = make_packer(32, 'little', False)
         >>> p
         <function _p32lu at 0x...>
         >>> p(42)
@@ -578,7 +578,7 @@ def make_packer(word_size = None, endianness = None, sign = None):
         Traceback (most recent call last):
             ...
         error: integer out of range for 'I' format code
-        >>> make_packer(33, 'little', 'unsigned')
+        >>> make_packer(33, 'little', False)
         <function <lambda> at 0x...>
 """
 
@@ -592,11 +592,11 @@ def make_packer(word_size = None, endianness = None, sign = None):
     if endianness not in ['little', 'big']:
         raise ValueError("make_packer(): endianness needs to be the string 'little' or 'big'")
 
-    if sign not in ['signed', 'unsigned']:
-        raise ValueError("make_packer(): sign needs to be the string 'signed' or 'unsigned'")
+    if sign not in [True, False]:
+        raise ValueError("make_packer(): sign needs to be the string True or False")
 
     if word_size in [8, 16, 32, 64]:
-        sign       = 1 if sign       == 'signed' else 0
+        sign       = 1 if sign       == True else 0
         endianness = 1 if endianness == 'big'    else 0
 
         return {
@@ -632,14 +632,14 @@ def make_unpacker(word_size = None, endianness = None, sign = None):
     Args:
         word_size (int): The word size to be baked into the returned packer.
         endianness (str): The endianness to be baked into the returned packer. ("little"/"big")
-        sign (str): The signness to be baked into the returned packer. ("unsigned"/"signed")
+        sign (str): The signness to be baked into the returned packer. (False/True)
 
     Returns:
         A function, which takes a single argument in the form of a string and returns a number
         of that string in an unpacked form.
 
     Examples:
-        >>> u = make_unpacker(32, 'little', 'unsigned')
+        >>> u = make_unpacker(32, 'little', False)
         >>> u
         <function _u32lu at 0x...>
         >>> hex(u('/bin'))
@@ -648,7 +648,7 @@ def make_unpacker(word_size = None, endianness = None, sign = None):
         Traceback (most recent call last):
             ...
         error: unpack requires a string argument of length 4
-        >>> make_unpacker(33, 'little', 'unsigned')
+        >>> make_unpacker(33, 'little', False)
         <function <lambda> at 0x...>
 """
 
@@ -662,11 +662,11 @@ def make_unpacker(word_size = None, endianness = None, sign = None):
     if endianness not in ['little', 'big']:
         raise ValueError("make_unpacker(): endianness needs to be the string 'little' or 'big'")
 
-    if sign not in ['signed', 'unsigned']:
-        raise ValueError("make_unpacker(): sign needs to be the string 'signed' or 'unsigned'")
+    if sign not in [True, False]:
+        raise ValueError("make_unpacker(): sign needs to be the string True or False")
 
     if word_size in [8, 16, 32, 64]:
-        sign       = 1 if sign       == 'signed' else 0
+        sign       = 1 if sign       == True else 0
         endianness = 1 if endianness == 'big'    else 0
 
         return {
@@ -733,10 +733,10 @@ def flat(*args, **kwargs):
          returned, then the original value is uded.
       word_size (int): Word size of the converted integer.
       endianness (str): Endianness of the converted integer ("little"/"big").
-      sign (str): Signedness of the converted integer ("unsigned"/"signed")
+      sign (str): Signedness of the converted integer (False/True)
 
     Examples:
-      >>> flat(1, "test", [[["AB"]*2]*3], endianness = 'little', word_size = 16, sign = 'unsigned')
+      >>> flat(1, "test", [[["AB"]*2]*3], endianness = 'little', word_size = 16, sign = False)
       '\\x01\\x00testABABABABABAB'
       >>> flat([1, [2, 3]], preprocessor = lambda x: str(x+1))
       '234'

@@ -1,16 +1,54 @@
-"""The purpose of this module is to expose a nice API
-to wrap around :func:`pwnlib.term.output`.
-
-We have designed it around these considerations:
-
-* It should work both in :data:`pwnlib.term.term_mode` and in normal mode.
-* We want log levels.
-* We want spinners.
-* It should expose all the functionality of :func:`pwnlib.term.output`.
-
-For an explanations of the semantics of the ``frozen``, ``float``, ``priority`` and ``indent``
-arguments, see :func:`pwnlib.term.output`.
 """
+Logging module for printing status during an exploit, and internally
+within ``pwntools``.
+
+Exploit Developers
+------------------
+By using the standard ``from pwn import *``, an object named ``log`` will
+be inserted into the global namespace.  You can use this to print out
+status messages during exploitation.
+
+For example,::
+
+    log.info('Hello, world!')
+
+prints::
+
+    [*] Hello, world!
+
+Additionally, there are some nifty mechanisms for performing status updates
+on a running job (e.g. when brute-forcing).::
+
+    p = log.progress('Working')
+    p.status('Reticulating splines')
+    time.sleep(1)
+    p.success('Got a shell!')
+
+
+The verbosity of logging can be most easily controlled by setting
+``context.log_level`` on the global ``context`` object.::
+
+    log.info("No you see me")
+    context.log_level = 'error'
+    log.info("Now you don't")
+
+Pwnlib Developers
+-----------------
+A module-specific logger can be imported into the module via
+
+::
+    log = logging.getLogger(__name__)
+
+This provides an easy way to filter logging programmatically
+or via a configuration file for debugging.
+
+There's no need to expressly import this ``log`` module.
+
+When using ``waitfor``/``progress``, you should use the ``with``
+keyword to manage scoping, to ensure the spinner stops if an
+exception is thrown.
+"""
+
 
 __all__ = [
     # loglevel == DEBUG
@@ -86,25 +124,25 @@ class Logger(logging.getLoggerClass()):
         return self.__log(logging.INFO, m, a, kw, text.bold_green('+'), True)
 
     def failure(self, m='Failed', *a, **kw):
-        return self.__log(logging.ERROR, m, a, kw, text.bold_red('-'), True)
+        return self.__log(logging.INFO, m, a, kw, text.bold_red('-'), True)
 
     def debug(self, m, *a, **kw):
         return self.__log(logging.DEBUG, m, a, kw, text.bold_red('DEBUG'), True)
 
-    def waitfor(self, *args, **kwargs):
+    def progress(self, *args, **kwargs):
         """
         Wrapper around :func:`progress` to enable legacy compatibility with invoking
         ``log.waitfor``.
         """
         return progress(*args, **kwargs)
 
-    # Aliases
-    indent = indented
-    warning = warn
-    status = info
-    output = info
-    done_success = success
     done_failure = failure
+    done_success = success
+    indent = indented
+    output = info
+    status = info
+    waitfor = progress
+    warning = warn
 
 
 
@@ -318,7 +356,31 @@ class TermHandler(logging.Handler):
             state %= len(states)
         handle.update('')
 
-def waitfor(msg, status = ''):
+def _monkeypatch(obj, enter, exit):
+    """
+    Python, why do you hate me so much?
+
+    >>> class A(object): pass
+    ...
+    >>> a = A()
+    >>> a.__len__ = lambda: 3
+    >>> a.__len__()
+    3
+    >>> len(a)
+    Traceback (most recent call last):
+    ...
+    TypeError: object of type 'A' has no len()
+    """
+    class Monkey(obj.__class__):
+        def __enter__(self, *a, **kw):
+            enter(*a, **kw)
+            return self
+        def __exit__(self, *a, **kw):
+            exit(*a, **kw)
+    obj.__class__ = Monkey
+
+
+def waitfor(msg, status = '', log_level = logging.INFO):
     """waitfor(msg, status = '', spinner = None) -> Logger
 
     Starts a new progress logger which includes a spinner
@@ -336,21 +398,34 @@ def waitfor(msg, status = ''):
       on the ``Logger``.
     """
     # Create the logger
-    l = logging.getLogger('pwnlib.spinner.%i' % waitfor.spin_count)
+    name = 'pwnlib.spinner.%i' % waitfor.spin_count
+    l    = logging.getLogger(name)
     waitfor.spin_count += 1
-
-    # Set the prefix on the logger itself
-    l.msg_prefix = msg + ': '
 
     # If we're doing terminal-aware stuff, it'll use the spinners
     # Otherwise, the message will propagate to the root handler
-    if term.term_mode:
+    #
+    # Additionally, set __enter__ and __exit__ so that we can use
+    # the object as a context handler for the status.
+    if term.term_mode and l.isEnabledFor(log_level):
         h = TermHandler()
         h.setFormatter(TermPrefixIndentFormatter())
         l.addHandler(h)
         l.propagate = False
 
-    l.info(status)
+        def stop(*a):
+            if not h.stop.isSet():
+                l.failure('Done, did not provide status')
+                h.stop.set()
+        _monkeypatch(l, lambda *a: l, stop)
+    else:
+        _monkeypatch(l, lambda *a: l, lambda *a: None)
+
+    # Set the prefix on the logger itself
+    l.msg_prefix = msg + ': '
+    if status:
+        l.info(status)
     return l
+
 waitfor.spin_count = 0
 progress = waitfor

@@ -287,7 +287,7 @@ def xor(*args, **kwargs):
     if len(args) == 0:
         raise ValueError("Must have something to xor")
 
-    strs = [packing.flat(s, word_size = 8, sign = 'unsigned', endianness = 'little') for s in args]
+    strs = [packing.flat(s, word_size = 8, sign = False, endianness = 'little') for s in args]
     strs = [[ord(c) for c in s] for s in strs if s != '']
 
     if strs == []:

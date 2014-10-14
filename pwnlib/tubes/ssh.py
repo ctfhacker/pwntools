@@ -21,45 +21,45 @@ class ssh_channel(sock):
 
         env = env or {}
 
-        h = log.waitfor('Opening new channel: %r' % ((process,) or 'shell'))
+        msg = 'Opening new channel: %r' % ((process,) or 'shell')
+        with log.waitfor(msg) as h:
+            if isinstance(process, (list, tuple)):
+                process = ' '.join(misc.sh_string(s) for s in process)
 
-        if isinstance(process, (list, tuple)):
-            process = ' '.join(misc.sh_string(s) for s in process)
+            if process and wd:
+                process = "cd %s 2>/dev/null >/dev/null; %s" % (misc.sh_string(wd), process)
 
-        if process and wd:
-            process = "cd %s 2>/dev/null >/dev/null; %s" % (misc.sh_string(wd), process)
+            if process and env:
+                for name, value in env.items():
+                    if not re.match('^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+                        log.error('run(): Invalid environment key $r' % name)
+                    process = '%s=%s %s' % (name, misc.sh_string(value), process)
 
-        if process and env:
-            for name, value in env.items():
-                if not re.match('^[a-zA-Z_][a-zA-Z0-9_]*$', name):
-                    log.error('run(): Invalid environment key $r' % name)
-                process = '%s=%s %s' % (name, misc.sh_string(value), process)
+            self.sock = parent.transport.open_session()
+            if self.tty:
+                self.sock.get_pty('xterm', term.width, term.height)
 
-        self.sock = parent.transport.open_session()
-        if self.tty:
-            self.sock.get_pty('xterm', term.width, term.height)
+                def resizer():
+                    if self.sock:
+                        self.sock.resize_pty(term.width, term.height)
 
-            def resizer():
-                if self.sock:
-                    self.sock.resize_pty(term.width, term.height)
+                self.resizer = resizer
+                term.term.on_winch.append(self.resizer)
+            else:
+                self.resizer = None
 
-            self.resizer = resizer
-            term.term.on_winch.append(self.resizer)
-        else:
-            self.resizer = None
+            # Put stderr on stdout. This might not always be desirable,
+            # but our API does not support multiple streams
+            self.sock.set_combine_stderr(True)
 
-        # Put stderr on stdout. This might not always be desirable,
-        # but our API does not support multiple streams
-        self.sock.set_combine_stderr(True)
+            self.settimeout(self.timeout)
 
-        self.settimeout(self.timeout)
+            if process:
+                self.sock.exec_command(process)
+            else:
+                self.sock.invoke_shell()
 
-        if process:
-            self.sock.exec_command(process)
-        else:
-            self.sock.invoke_shell()
-
-        h.success()
+            h.success()
 
     def kill(self):
         """kill()
@@ -185,18 +185,19 @@ class ssh_connecter(sock):
         self.rhost = host
         self.rport = port
 
-        h = log.waitfor('Connecting to %s:%d via SSH to %s' % (self.rhost, self.rport, self.host))
-        try:
-            self.sock = parent.transport.open_channel('direct-tcpip', (host, port), ('127.0.0.1', 0))
-        except:
-            h.failure()
-            raise
+        msg = 'Connecting to %s:%d via SSH to %s' % (self.rhost, self.rport, self.host)
+        with log.waitfor(msg) as h:
+            try:
+                self.sock = parent.transport.open_channel('direct-tcpip', (host, port), ('127.0.0.1', 0))
+            except:
+                h.failure()
+                raise
 
-        sockname = self.sock.get_transport().sock.getsockname()
-        self.lhost = sockname[0]
-        self.lport = sockname[1]
+            sockname = self.sock.get_transport().sock.getsockname()
+            self.lhost = sockname[0]
+            self.lport = sockname[1]
 
-        h.success()
+            h.success()
 
     def spawn_process(self, *args, **kwargs):
         log.error("Cannot use spawn_process on an SSH channel.""")
@@ -215,7 +216,8 @@ class ssh_listener(sock):
         self.host = parent.host
         self.port = port
 
-        h = log.waitfor('Waiting on port %d via SSH to %s' % (self.port, self.host))
+        msg = 'Waiting on port %d via SSH to %s' % (self.port, self.host)
+        h   = log.waitfor(msg)
         try:
             parent.transport.request_port_forward(bind_address, self.port)
         except:
@@ -284,33 +286,34 @@ class ssh(object):
 
         keyfiles = [os.path.expanduser(keyfile)] if keyfile else []
 
-        h = log.waitfor('Connecting to %s on port %d' % (host, port))
-        self.client = paramiko.SSHClient()
+        msg = 'Connecting to %s on port %d' % (host, port)
+        with log.waitfor(msg) as h:
+            self.client = paramiko.SSHClient()
 
-        class IgnorePolicy(paramiko.MissingHostKeyPolicy):
-            """Policy for what happens when an unknown ssh-fingerprint is encountered"""
-            def __init__(self):
-                self.do_warning = False
+            class IgnorePolicy(paramiko.MissingHostKeyPolicy):
+                """Policy for what happens when an unknown ssh-fingerprint is encountered"""
+                def __init__(self):
+                    self.do_warning = False
 
-        self.client.set_missing_host_key_policy(IgnorePolicy())
+            self.client.set_missing_host_key_policy(IgnorePolicy())
 
-        has_proxy = (proxy_sock or proxy_command) and True
-        if has_proxy:
-            if 'ProxyCommand' not in dir(paramiko):
-                log.error('This version of paramiko does not support proxies.')
+            has_proxy = (proxy_sock or proxy_command) and True
+            if has_proxy:
+                if 'ProxyCommand' not in dir(paramiko):
+                    log.error('This version of paramiko does not support proxies.')
 
-            if proxy_sock and proxy_command:
-                log.error('Cannot have both a proxy command and a proxy sock')
+                if proxy_sock and proxy_command:
+                    log.error('Cannot have both a proxy command and a proxy sock')
 
-            if proxy_command:
-                proxy_sock = paramiko.ProxyCommand(proxy_command)
-            self.client.connect(host, port, user, password, key, keyfiles, self.timeout, compress = True, sock = proxy_sock)
-        else:
-            self.client.connect(host, port, user, password, key, keyfiles, self.timeout, compress = True)
+                if proxy_command:
+                    proxy_sock = paramiko.ProxyCommand(proxy_command)
+                self.client.connect(host, port, user, password, key, keyfiles, self.timeout, compress = True, sock = proxy_sock)
+            else:
+                self.client.connect(host, port, user, password, key, keyfiles, self.timeout, compress = True)
 
-        self.transport = self.client.get_transport()
+            self.transport = self.client.get_transport()
 
-        h.success()
+            h.success()
 
     def shell(self, tty = True, timeout = None):
         """shell(tty = False, timeout = None) -> ssh_channel
@@ -468,28 +471,29 @@ class ssh(object):
         total, _ = self.run_to_end('wc -c ' + misc.sh_string(remote))
         total = misc.size(int(total.split()[0]))
 
-        h = log.waitfor('Downloading %r' % remote)
 
-        def update(has):
-            h.status("%s/%s" % (misc.size(has), total))
+        with log.waitfor('Downloading %r' % remote) as h:
 
-        with context.local(log_level = 'ERROR'):
-            c = self.run('cat ' + misc.sh_string(remote))
-        data = ''
+            def update(has):
+                h.status("%s/%s" % (misc.size(has), total))
 
-        while True:
-            try:
-                data += c.recv()
-            except EOFError:
-                break
-            update(len(data))
+            with context.local(log_level = 'ERROR'):
+                c = self.run('cat ' + misc.sh_string(remote))
+            data = ''
 
-        if c.wait() != 0:
-            h.failure('Could not download file %r (%r)' % (remote, result))
-        else:
-            with open(local, 'w') as fd:
-                fd.write(data)
-            h.success()
+            while True:
+                try:
+                    data += c.recv()
+                except EOFError:
+                    break
+                update(len(data))
+
+            if c.wait() != 0:
+                h.failure('Could not download file %r (%r)' % (remote, result))
+            else:
+                with open(local, 'w') as fd:
+                    fd.write(data)
+                h.success()
 
     def _download_to_cache(self, remote):
         fingerprint = self._get_fingerprint(remote)

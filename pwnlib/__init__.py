@@ -14,5 +14,5 @@ from . import \
     replacements  , rop           , shellcraft    , term          , \
     tubes         , ui            , useragents    , util
 
-from .context import context
+# from .context import context
 from .version import __version__

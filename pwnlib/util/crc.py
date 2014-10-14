@@ -199,7 +199,7 @@ class Module(types.ModuleType):
             inlen = len(data)*8
             if refin:
                 data = fiddling.bitswap(data)
-            p = BitPolynom(packing.unpack(data, 'all', 'big', 'unsigned'))
+            p = BitPolynom(packing.unpack(data, 'all', 'big', False))
         p = p << width
         p ^= init << inlen
         p  = p % polynom
@@ -257,7 +257,7 @@ class Module(types.ModuleType):
 """
 
         l = len(data)
-        data += packing.pack(l, 'all', 'little', 'unsigned')
+        data += packing.pack(l, 'all', 'little', False)
         return crc.crc_32_posix(data)
 
     def _all_crcs(self):

@@ -6,54 +6,45 @@ contexts work properly and as expected.
 """
 import types, sys, threading, re, collections, string, logging
 
-class _defaultdict2(collections.defaultdict):
+class _defaultdict(dict):
     """
     Dictionary which loads missing keys from another dictionary.
 
     This is neccesary because the ``default_factory`` method of
     :class:`collections.defaultdict` does not provide the key.
 
-        Examples:
+    Examples:
 
-            .. doctest::
+        >>> a = {'foo': 'bar'}
+        >>> b = pwnlib.context._defaultdict(a)
+        >>> b['foo']
+        'bar'
+        >>> 'foo' in b
+        False
+        >>> b['foo'] = 'baz'
+        >>> b['foo']
+        'baz'
+        >>> del b['foo']
+        >>> b['foo']
+        'bar'
 
-                >>> a = {'foo': 'bar'}
-                >>> b = _defaultdict2(a)
-                >>> b['foo']
-                'bar'
-                >>> 'foo' in b
-                False
-                >>> b['foo'] = 'baz'
-                >>> b['foo']
-                'baz'
-                >>> del b['foo']
-                >>> b['foo']
-                'bar'
-
-                >>> a = {'foo': 'bar'}
-                >>> b = _defaultdict2(a)
-                >>> b['baz']
-                Traceback (most recent call last):
-                ...
-                KeyError: 'baz'
+        >>> a = {'foo': 'bar'}
+        >>> b = pwnlib.context._defaultdict(a)
+        >>> b['baz'] #doctest: +ELLIPSIS
+        Traceback (most recent call last):
+        ...
+        KeyError: 'baz'
     """
     def __init__(self, default=None):
+        super(_defaultdict, self).__init__()
         if default is None:
             default = {}
 
         self.default = default
 
-        super(_defaultdict2, self).__init__(None)
+
     def __missing__(self, key):
         return self.default[key]
-    def __repr__(self):
-        return dict.__repr__(self)
-    def __str__(self):
-        return dict.__str__(self)
-    def copy(self):
-        copy = _defaultdict2(self.default)
-        copy.update(self)
-        return copy
 
 class _DictStack(object):
     """
@@ -63,26 +54,24 @@ class _DictStack(object):
     The underlying object used as ``default`` must implement ``copy``, ``clear``,
     and ``update``.
 
-        Examples:
+    Examples:
 
-            .. doctest::
-
-                >>> t = _DictStack(default={})
-                >>> t['key'] = 'value'
-                >>> t
-                {'key': 'value'}
-                >>> t.push()
-                >>> t
-                {'key': 'value'}
-                >>> t['key'] = 'value2'
-                >>> t
-                {'key': 'value2'}
-                >>> t.pop()
-                >>> t
-                {'key': 'value'}
+        >>> t = pwnlib.context._DictStack(default={})
+        >>> t['key'] = 'value'
+        >>> t
+        {'key': 'value'}
+        >>> t.push()
+        >>> t
+        {'key': 'value'}
+        >>> t['key'] = 'value2'
+        >>> t
+        {'key': 'value2'}
+        >>> t.pop()
+        >>> t
+        {'key': 'value'}
     """
     def __init__(self, default):
-        self._current = default
+        self._current = _defaultdict(default)
         self.__stack  = []
 
     def push(self):
@@ -93,7 +82,7 @@ class _DictStack(object):
         self._current.update(self.__stack.pop())
 
     def copy(self):
-        return self.__class__(self._current.copy())
+        return self._current.copy()
 
     # Pass-through container emulation routines
     def __len__(self):              return self._current.__len__()
@@ -103,6 +92,7 @@ class _DictStack(object):
     def __contains__(self, k):      return self._current.__contains__(k)
     def __iter__(self):             return self._current.__iter__()
     def __repr__(self):             return self._current.__repr__()
+    def __eq__(self, other):        return self._current.__eq__(other)
 
     # Required for keyword expansion operator ** to work
     def keys(self):                 return self._current.keys()
@@ -114,17 +104,16 @@ class _Tls_DictStack(threading.local, _DictStack):
     """
     Per-thread implementation of :class:`_DictStack`.
 
-        Examples:
+    Examples: ::
 
-            .. doctest::
-
-                >>> t = _Tls_DictStack()
-                >>> t['key'] = 'value'
-                >>> t
-                {'key': 'value'}
-                >>> def p(): print t
-                >>> threading.Thread(target=p).start()
-                {}
+        >>> t = pwnlib.context._Tls_DictStack({})
+        >>> t['key'] = 'value'
+        >>> print t
+        {'key': 'value'}
+        >>> def p(): print t
+        >>> thread = threading.Thread(target=p)
+        >>> _ = (thread.start(), thread.join())
+        {}
     """
     pass
 
@@ -139,31 +128,30 @@ class Thread(threading.Thread):
     and updates the new thread's context before passing control
     to the user code via ``run`` or ``target=``.
 
-    Examples:
+    Examples: ::
 
-        .. doctest::
-
-            >>> context
-            Context()
-            >>> context(arch='arm')
-            Context(arch = 'arm')
-            >>> def p():
-            ...     print context
-            ...     context.arch = 'mips'
-            ...     print context
-            ...
-            >>> t = threading.Thread(target=p)
-            >>> _=(t.start(), t.join())
-            Context()
-            Context(arch = 'mips')
-            >>> context
-            Context(arch = 'arm')
-            >>> t = pwnlib.context.Thread(target=p)
-            >>> _=(t.start(), t.join())
-            Context(arch = 'arm')
-            Context(arch = 'mips')
-            >>> context
-            Context()
+        >>> context.reset_local()
+        >>> context(arch='arm')
+        Context(arch = 'arm')
+        >>> def p():
+        ...     print context
+        ...     context.arch = 'mips'
+        ...     print context
+        >>> # Note that a normal Thread starts with a clean context
+        >>> t = threading.Thread(target=p)
+        >>> _=(t.start(), t.join())
+        Context()
+        Context(arch = 'mips')
+        >>> # Note that the main Thread's context is unchanged
+        >>> context
+        Context(arch = 'arm')
+        >>> # Note that a context-aware Thread receives a copy of the context
+        >>> t = Thread(target=p)
+        >>> _=(t.start(), t.join())
+        Context(arch = 'arm')
+        Context(arch = 'mips')
+        >>> context
+        Context()
 
     Implementation Details:
 
@@ -204,9 +192,7 @@ class Context(object):
     Some routines will allow specifying a different architecture as arguments,
     but use the ``context``-provided values as defaults.
 
-    The context is usually specified at the top of the Python file for clarity.
-
-    .. highlight::
+    The context is usually specified at the top of the Python file for clarity.::
 
         #!/usr/bin/env python
         context(arch='i386', os='linux')
@@ -230,36 +216,40 @@ class Context(object):
         os(str):        Target Operating System
         signed(bool):   Signed-ness for packing operations in :mod:`pwnlib.util.packing`
 
-    Examples:
+    Examples: ::
 
-        .. doctest::
-
-            >>> from pwn import *
-            >>> context
-            Context()
-            >>> context.update(os='linux')
-            >>> context
-            Context(os = 'linux')
-            >>> context(arch = 'arm')
-            Context(os = 'linux', arch = 'arm')
-            >>> def nop():
-            ...   print asm('nop').encode('hex')
-            ...
-            >>> nop()
-            00f020e3
-            >>> with context.local(arch = 'mips'):
-            ...   nop()
-            00842020
-            >>> with context.local(arch = 'x86'):
-            ...     pwnthread = context.Thread(target=nop)
-            ...     thread = threading.Thread(target=nop)
-            ...
-            >>> _=(thread.start(), thread.join())
-            00f020e3
-            >>> _=(pwnthread.start(), pwnthread.join())
-            90
-            >>> nop()
-            00f020e3
+        >>> from pwn import *
+        >>> context
+        Context()
+        >>> context.update(os='linux')
+        ...
+        >>> context.os == 'linux'
+        True
+        >>> context.arch = 'arm'
+        >>> context.copy() == {'arch': 'arm', 'os': 'linux'}
+        True
+        >>> context.endian
+        'little'
+        >>> context.bits
+        32
+        >>> def nop():
+        ...   print asm('nop').encode('hex')
+        >>> nop()
+        00f020e3
+        >>> with context.local(arch = 'x86'):
+        ...   nop()
+        90
+        >>> with context.local(arch = 'mips'):
+        ...     pwnthread = context.thread(target=nop)
+        ...     thread = threading.Thread(target=nop)
+        >>> # Normal thread uses the default value for arch, 'x86'
+        >>> _=(thread.start(), thread.join())
+        90
+        >>> # Pwnthread uses the correct context from creation-time
+        >>> _=(pwnthread.start(), pwnthread.join())
+        00000000
+        >>> nop()
+        00f020e3
     """
 
     #
@@ -273,9 +263,11 @@ class Context(object):
 
     #: Valid values for :class:`pwnlib.context.Context`
     defaults = {
+        'bits': 32,
         'os': 'linux',
         'arch': 'x86',
         'endian': 'little',
+        'signed': False,
         'timeout': 1,
         'log_level': logging.INFO
     }
@@ -318,7 +310,7 @@ class Context(object):
 
         All keyword arguments are passed to :func:`update`.
         """
-        self._tls = _Tls_DictStack(_defaultdict2(Context.defaults))
+        self._tls = _Tls_DictStack(_defaultdict(Context.defaults))
         self.update(**kwargs)
 
 
@@ -326,13 +318,13 @@ class Context(object):
         """
         Returns a copy of the current context as a dictionary.
 
-        Examples:
+        Examples: ::
 
-            .. doctest::
-
-                >>> context(arch = 'x86', os = 'linux')
-                >>> context.copy() == {'arch': 'x86', 'os': 'linux'}
-                True
+            >>> context.reset_local()
+            >>> context.arch = 'x86'
+            >>> context.os   = 'linux'
+            >>> context.copy() == {'arch': 'x86', 'os': 'linux'}
+            True
         """
         return self._tls.copy()
 
@@ -358,13 +350,10 @@ class Context(object):
         Args:
           kwargs: Variables to be assigned in the environment.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context(arch = 'x86', os = 'linux')
-                >>> context.arch, context.os
-                'x86', 'linux'
+        Examples: ::
+            >>> context(arch = 'x86', os = 'linux')
+            >>> context.arch, context.os
+            ('x86', 'linux')
         """
         for arg in args:
             self.update(**arg)
@@ -390,20 +379,17 @@ class Context(object):
         Returns:
           Context manager for managing the old and new environment.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context
-                Context()
-                >>> with context.local(arch = 'mips'):
-                ...     print context
-                ...     context.arch = 'arm'
-                ...     print context
-                Context(arch = 'mips')
-                Context(arch = 'arm')
-                >>> print context
-                Context()
+        Examples: ::
+            >>> context
+            Context()
+            >>> with context.local(arch = 'mips'):
+            ...     print context
+            ...     context.arch = 'arm'
+            ...     print context
+            Context(arch = 'mips')
+            Context(arch = 'arm')
+            >>> print context
+            Context()
         """
         class LocalContext(object):
             def __enter__(a):
@@ -416,6 +402,11 @@ class Context(object):
 
         return LocalContext()
 
+    def reset_local(self):
+        """
+        Clears the contents innermost scoped context on the context stack.
+        """
+        self._tls._current.clear()
 
     def thread(self, *args, **kwargs):
         """
@@ -459,47 +450,45 @@ class Context(object):
         Raises:
             ValueError: An invalid architecture was specified
 
-        Examples:
+        Examples: ::
+            >>> context.reset_local()
+            >>> context.arch == 'x86'
+            True
 
-            .. doctest::
+            >>> context.arch = 'mips'
+            >>> context.arch == 'mips'
+            True
 
-                >>> context.arch == 'x86'
-                True
+            >>> context.arch = 'doge' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+             ...
+            ValueError: arch must be one of ['alpha', 'arm', 'cris', 'm68k', 'mips', 'powerpc', 'thumb', 'x86']
 
-                >>> context.arch = 'mips'
-                >>> context.arch == 'mips'
-                True
+            >>> context.arch = 'ppc'
+            >>> context.arch == 'powerpc'
+            True
 
-                >>> context.arch = 'doge'
-                Traceback (most recent call last):
-                 ...
-                ValueError: arch must be one of ('alpha', 'arm', 'cris', 'x86', 'm68k', 'mips', 'powerpc', 'thumb')
+            >>> context.bits != 64
+            True
+            >>> context.arch = 'aarch64'
+            >>> context.bits == 64
+            True
 
-                >>> context.arch = 'ppc'
-                >>> context.arch == 'powerpc'
-                True
+            >>> context.arch = 'powerpc32be'
+            >>> context.endianness == 'big'
+            True
+            >>> context.bits == 32
+            True
+            >>> context.arch == 'powerpc'
+            True
 
-                >>> context.bits != 64
-                True
-                >>> context.arch = 'aarch64'
-                >>> context.bits == 64
-                True
-
-                >>> context.arch = 'powerpc32be'
-                >>> context.endianness == 'big'
-                True
-                >>> context.bits == 32
-                True
-                >>> context.arch == powerpc
-                True
-
-                >>> context.arch = 'mips-64-little'
-                >>> context.arch == 'mips'
-                True
-                >>> context.bits == 64
-                True
-                >>> context.endianness == 'little'
-                True
+            >>> context.arch = 'mips-64-little'
+            >>> context.arch == 'mips'
+            True
+            >>> context.bits == 64
+            True
+            >>> context.endianness == 'little'
+            True
         """
         return self._tls['arch']
 
@@ -509,8 +498,8 @@ class Context(object):
         transform = {
             'aarch': 'arm',
             'ppc':   'powerpc',
-            'i386':  'x86',
-            'amd64': 'x86_64' # mildly hacky
+            'i386':  'x86_32',
+            'amd64': 'x86_64'
         }
 
         # Lowercase, remove everything non-alphanumeric
@@ -534,7 +523,7 @@ class Context(object):
                 tail              = arch[len(a):]
                 break
         else:
-            raise ValueError('arch must be one of %r' % (architectures,))
+            raise ValueError('arch must be one of %r' % (self.architectures,))
 
 
         # Attempt to figure out whatever is left over.
@@ -558,25 +547,23 @@ class Context(object):
         Raises:
             ValueError: An invalid endianness was provided
 
-        Examples:
+        Examples: ::
+            >>> context.reset_local()
+            >>> context.endianness == 'little'
+            True
 
-            .. doctest::
+            >>> context.endianness = 'big'
+            >>> context.endianness
+            'big'
 
-                >>> context.endianness == 'little'
-                True
+            >>> context.endianness = 'be'
+            >>> context.endianness == 'big'
+            True
 
-                >>> context.endianness = 'big'
-                >>> context.endianness
-                'big'
-
-                >>> context.endianness = 'be'
-                >>> context.endianness == 'big'
-                True
-
-                >>> context.endianness = 'foobar'
-                Traceback (most recent call last):
-                 ...
-                ValueError: endianness must be one of ['be', 'big', 'eb', 'el', 'le', 'little']
+            >>> context.endianness = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+             ...
+            ValueError: endianness must be one of ['be', 'big', 'eb', 'el', 'le', 'little']
         """
         return self._tls['endian']
 
@@ -594,12 +581,9 @@ class Context(object):
         """
         Alias for ``endianness``.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context.endian == context.endianness
-                True
+        Examples: ::
+            >>> context.endian == context.endianness
+            True
         """
         return self.endianness
     @endian.setter
@@ -615,15 +599,12 @@ class Context(object):
 
         Allowed values are listed in :attr:`oses`.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context.os = 'linux'
-                >>> context.os = 'foobar'
-                Traceback (most recent call last):
-                ...
-                ValueError: os must be one of ('freebsd', 'linux', 'windows')
+        Examples: ::
+            >>> context.os = 'linux'
+            >>> context.os = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            ValueError: os must be one of ['freebsd', 'linux', 'windows']
         """
         return self._tls['os']
 
@@ -648,17 +629,14 @@ class Context(object):
         string ``'inf'`` which implies that a timeout can never occur.
 
 
-        Examples:
-
-            .. doctest::
-
-                >>> context.timeout == 1
-                True
-                >>> context.timeout = 'inf'
-                >>> context.timeout > 2**256
-                True
-                >>> context.timeout - 30
-                inf
+        Examples: ::
+            >>> context.timeout == 1
+            True
+            >>> context.timeout = 'inf'
+            >>> context.timeout > 2**256
+            True
+            >>> context.timeout - 30
+            inf
         """
         return self._tls['timeout']
 
@@ -678,19 +656,17 @@ class Context(object):
 
         The default value is ``32``.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context.bits == 32
-                True
-                >>> context.bits = 64
-                >>> context.bits == 64
-                True
-                >>> context.bits = -1
-                Traceback (most recent call last):
-                ...
-                ValueError: "bits must be positive (-1)"
+        Examples: ::
+            >>> context.reset_local()
+            >>> context.bits == 32
+            True
+            >>> context.bits = 64
+            >>> context.bits == 64
+            True
+            >>> context.bits = -1 #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            ValueError: bits must be >= 0 (-1)
         """
         return self._tls['bits']
 
@@ -699,7 +675,7 @@ class Context(object):
         bits = int(bits)
 
         if bits <= 0:
-            raise ValueError("bits must be positive (%r)" % bits)
+            raise ValueError("bits must be >= 0 (%r)" % bits)
 
         self._tls['bits'] = bits
 
@@ -710,18 +686,15 @@ class Context(object):
 
         This is a convenience wrapper around ``bits / 8``.
 
-        Examples:
+        Examples: ::
+            >>> context.bytes = 1
+            >>> context.bits == 8
+            True
 
-            .. doctest::
-
-                >>> context.bytes = 1
-                >>> context.bits == 8
-                True
-
-                >>> context.bytes = 0
-                Traceback (most recent call last):
-                ...
-                ValueError: "bits must be positive (0)"
+            >>> context.bytes = 0 #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            ValueError: bits must be >= 0 (0)
         """
         return self.bits / 8
 
@@ -739,23 +712,17 @@ class Context(object):
 
         Default value is set to ``INFO``.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context.log_level == logging.INFO
-                True
-
-                >>> context.log_level = 'error'
-                >>> context.log_level == logging.ERROR
-                True
-
-                >>> context.log_level = 10
-
-                >>> context.log_level = 'foobar'
-                Traceback (most recent call last):
-                ...
-                ValueError: log_level must be an integer or one of ['DEBUG', 'ERROR', 'INFO', 'SILENT']
+        Examples: ::
+            >>> context.log_level == logging.INFO
+            True
+            >>> context.log_level = 'error'
+            >>> context.log_level == logging.ERROR
+            True
+            >>> context.log_level = 10
+            >>> context.log_level = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            ValueError: log_level must be an integer or one of ['CRITICAL', 'DEBUG', 'ERROR', 'INFO', 'NOTSET', 'WARN', 'WARNING']
         """
         return self._tls['log_level']
 
@@ -786,29 +753,22 @@ class Context(object):
         values ``'signed'`` or ``'unsigned'`` which are converted into
         ``True`` and ``False`` correspondingly.
 
-        Examples:
-
-            .. doctest::
-
-                >>> context.signed
-                False
-
-                >>> context.signed = 1
-                >>> context.signed
-                True
-
-                >>> context.signed = 'signed'
-                >>> context.signed
-                True
-
-                >>> context.signed = 'unsigned'
-                >>> context.signed
-                False
-
-                >>> context.signed = 'foobar'
-                Traceback (most recent call last):
-                ...
-                ValueError: signed must be one of ['no', 'signed', 'unsigned', 'yes'] or a non-string truthy value
+        Examples: ::
+            >>> context.signed
+            False
+            >>> context.signed = 1
+            >>> context.signed
+            True
+            >>> context.signed = 'signed'
+            >>> context.signed
+            True
+            >>> context.signed = 'unsigned'
+            >>> context.signed
+            False
+            >>> context.signed = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            ValueError: signed must be one of ['no', 'signed', 'unsigned', 'yes'] or a non-string truthy value
         """
         return self._tls['signed']
 
@@ -817,7 +777,7 @@ class Context(object):
         try:             signed = Context.signednesses[signed]
         except KeyError: pass
 
-        if isinstance(object, str):
+        if isinstance(signed, str):
             raise ValueError('signed must be one of %r or a non-string truthy value' % sorted(Context.signednesses))
 
         self._tls['signed'] = bool(signed)

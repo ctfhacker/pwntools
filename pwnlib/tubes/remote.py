@@ -4,7 +4,7 @@ import socket, logging
 log = logging.getLogger(__name__)
 
 class remote(sock):
-    """Creates a TCP or UDP-connection to a remote host. It supports
+    """XXXCreates a TCP or UDP-connection to a remote host. It supports
     both IPv4 and IPv6.
 
     The returned object supports all the methods from
