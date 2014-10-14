@@ -287,11 +287,11 @@ class Context(object):
 
     #: Valid values for :attr:`pwnlib.context.Context.endian`
     endiannesses = {
-        'be': 'big',
-        'eb': 'big',
-        'big': 'big',
-        'le': 'little',
-        'el': 'little',
+        'be':     'big',
+        'eb':     'big',
+        'big':    'big',
+        'le':     'little',
+        'el':     'little',
         'little': 'little'
     }
 

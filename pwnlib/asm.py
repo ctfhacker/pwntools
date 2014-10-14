@@ -1,3 +1,6 @@
+r"""
+
+"""
 import tempfile, subprocess, shutil, tempfile, errno, logging
 from os import path, environ
 from glob import glob
@@ -246,7 +249,7 @@ def cpp(shellcode, **kwargs):
 def asm(shellcode, **kwargs):
     r"""asm(code, ...) -> str
 
-    Runs CPP over a given shellcode and then assembles it into bytes.
+    Runs :func:`cpp` over a given shellcode and then assembles it into bytes.
 
     To see which architectures or operating systems are supported,
     look in :mod:`pwnlib.contex`.

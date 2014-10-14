@@ -7,9 +7,5 @@
 :mod:`pwnlib.context` --- Setting runtime variables
 =====================================================
 
-
-:mod:`pwnlib.context`
----------------------
-
 .. autoclass:: pwnlib.context.Context
 

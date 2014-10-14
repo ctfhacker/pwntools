@@ -1,53 +1,56 @@
-Introduction to pwntools
+Getting Started
 ========================
 
-Historically pwntools was used as a sort of exploit-writing DSL. Simply doing
-``from pwn import *`` in a previous version of pwntools would bring all sorts of
-nice side-effects.
+To get your feet wet with pwntools, let's first go through a few examples.
 
-When redesigning pwntools for 2.0, we noticed two contrary goals:
+Getting Acquainted
+------------------------
 
-* We would like to have a "normal" python module structure, to allow other
-  people to faster get familiar with how pwntools works.
-* We would like to have even more side-effects, especially by putting the
-  terminal in raw-mode.
+When writing exploits, pwntools generally follows the "kitchen sink" approach.
 
-To make this possible, we decided to have two different modules. :mod:`pwnlib`
-would be our nice, clean python module, while :mod:`pwn` would be used during
-CTFs.
+    >>> from pwn import *
 
-:mod:`pwnlib` --- Normal python library
----------------------------------------
+This imports a lot of functionality into the global namespace.  You can now
+assemble, disassemble, pack, unpack, and many other things with a single function.
 
-.. module:: pwnlib
+Let's start with a few common examples.
 
-This module is our "clean" python-code. As a rule, we do not think that
-importing :mod:`pwnlib` or any of the submodules should have any significant
-side-effects (besides e.g. caching).
 
-For the most part, you will also only get the bits you import. You for instance
-not get access to :mod:`pwnlib.util.packing` simply by doing ``import
-pwnlib.util``.
+Making Connections
+^^^^^^^^^^^^^^^^^^
 
-Though there are a few exceptions (such as :mod:`pwnlib.shellcraft`), that does
-not quite fit the goals of being simple and clean, but they can still be
-imported without implicit side-effects.
+You need to talk to the challenge binary in order to pwn it, right?
+pwntools makes this stupid simple with its :mod:`pwnlib.tubes` module.
 
-:mod:`pwn` --- Toolbox optimized for CTFs
------------------------------------------
+This exposes a standard interface to talk to processes, sockets, serial ports,
+and all manner of things, along with some nifty helpers for common tasks.
 
-.. module:: pwn
+    >>> conn = remote('google.com', 80)
+    >>> conn.send('GET /404\r\n\r\n')
+    >>> conn.recvline()
+    'HTTP/1.0 404 Not Found\r'
+    >>> conn.recvuntil(['GMT'])
+    'Date: Tue, 14 Oct 2014 12:04:25 GMT'
 
-As stated, we would also like to have the ability to get a lot of these
-side-effects by default. That is the purpose of this module. It does
-the following:
 
-* Imports everything from the toplevel :mod:`pwnlib` along with
-  functions from a lot of submodules. This means that if you do
-  ``import pwn`` or ``from pwn import *``, you will access to
-  everything you need to write an exploit.
-* Calls :func:`pwnlib.term.init` to put your terminal in raw mode
-  and implementing functionality to make it look like it is not.
-* Setting the :data:`pwnlib.context.log_level` to `"info"`.
-* Tries to parse some of the values in :data:`sys.argv` and every
-  value it succeeds in parsing it removes.
+Packing Integers
+^^^^^^^^^^^^^^^^
+
+A common task for exploit-writing is converting between integers as Python
+sees them, and their representation as a sequence of bytes.
+Usually folks resort to the built-in ``struct`` module.
+
+    >>> import struct
+    >>> struct.pack('I', 0xdeadbeef)
+    '\xef\xbe\xad\xde'
+    >>> struct.unpack('I', '7\x13\x00\x00')[0] == 0x1337
+    True
+
+pwntools makes this easier
+
+    >>> p32(0xdeadbeef)
+    '\xef\xbe\xad\xde'
+    >>> u32('7\x13\x00\x00') == 0x1337
+    True
+
+The packing/unpacking operations are defined for many common bit-widths.
