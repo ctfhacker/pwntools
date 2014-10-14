@@ -5,7 +5,7 @@ Args: [gid (imm/reg) = egid]
 </%docstring>
 
 % if gid == 'egid':
-    ;; getegid
+    /*  getegid */
     push SYS_getegid
     pop rax
     int 0x80
@@ -14,7 +14,7 @@ Args: [gid (imm/reg) = egid]
     pop rax
 % endif
 
-    ;; setregid(rax, rax)
+    /*  setregid(rax, rax) */
     mov rbx, rax
     mov rcx, rax
     push SYS_setregid
