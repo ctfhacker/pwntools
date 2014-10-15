@@ -6,7 +6,7 @@ from ..util import hashes, misc
 from .sock    import sock
 from .process import process
 
-log = logging.getLogger('pwn.tubes.ssh')
+log = logging.getLogger('__name__')
 
 class ssh_channel(sock):
     def __init__(self, parent, process = None, tty = False, wd = None, env = None, timeout = None):

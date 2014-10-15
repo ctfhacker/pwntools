@@ -783,6 +783,69 @@ class Context(object):
         self._tls['signed'] = bool(signed)
 
 
+    @property
+    def newline(self):
+        r"""
+        Defines the newline character, as interpreted by objects from
+        :mod:`pwntools.tubes`.
+
+        Default value is ``'\n'``
+
+        Example:
+
+            >>> context.newline
+            '\n'
+            >>> t = tube()
+            >>> t.recv_raw = lambda: 'Hello\r\nWorld\r\n'
+            >>> t.recvlines(2)
+            ['Hello\r', 'World\r']
+            >>> context.newline = '\r\n'
+            >>> t.recvlines(2)
+            ['Hello', 'World']
+        """
+
+        return self._tls['newline']
+    @newline.setter
+    def newline(self, value):
+        self._tls['newline'] = value
+
+    @property
+    def keep_line_ends(self):
+        r"""
+        Determines whether, by default, :meth:`pwnlib.tubes.tube.tube.recvline`
+        and related routines will strip newlines.
+
+        Default value is ``True``
+
+        Example:
+
+            >>> context.keep_line_ends
+            True
+            >>> t = tube()
+            >>> t.recv_raw = lambda: 'Hello\nWorld\n'
+            >>> t.recvline()
+            'Hello\n'
+            >>> contet.keep_line_ends = False
+            >>> t.recvline()
+            'World'
+        """
+
+        return self._tls['keep_line_ends']
+
+    @keep_line_ends.setter
+    def keep_line_ends(self, value):
+        self._tls['keep_line_ends'] = bool(value)
+
+    @property
+    def foo(self):
+        return self._foo
+    @foo.setter
+    def foo(self, value):
+        self._foo = value
+
+
+
+
     #*************************************************************************
     #                           DEPRECATED FIELDS
     #*************************************************************************

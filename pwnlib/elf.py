@@ -460,7 +460,7 @@ class ELF(ELFFile):
 
         The resulting binary can be saved with ELF.save()
         """
-        binary = asm(('org %#x\n' % address) + assembly)
+        binary = asm(assembly, vma=address)
         self.write(address, binary)
 
     def bss(self, offset=0):

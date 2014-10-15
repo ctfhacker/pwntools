@@ -20,3 +20,5 @@ Args: [uid (imm/reg) = euid]
     push SYS_setreuid
     pop eax
     int 0x80
+
+    /* fin */

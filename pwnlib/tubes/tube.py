@@ -232,15 +232,15 @@ class tube(Timeout):
                 'Hello '
                 >>> t.clean(0)
                 >>> # Matches on 'o' in 'Hello'
-                >>> t.recvuntil(' Wor')
+                >>> t.recvuntil(tuple(' Wor'))
                 'Hello'
                 >>> t.clean(0)
                 >>> # Matches expressly full string
-                >>> t.recvuntil([' Wor'])
+                >>> t.recvuntil(' Wor')
                 'Hello Wor'
                 >>> t.clean(0)
                 >>> # Matches on full string, drops match
-                >>> t.recvuntil([' Wor'], drop=True)
+                >>> t.recvuntil(' Wor', drop=True)
                 'Hello'
 
                 >>> # Try with regex special characters
@@ -251,7 +251,8 @@ class tube(Timeout):
 
         """
         # Convert string into list of characters
-        delims = tuple(delims)
+        if not hasattr(delims, '__iter__'):
+            delims = (delims,)
 
         def escape_regex_special(sz):
             specials = '\\/.*+?|()[]{}'
@@ -299,7 +300,7 @@ class tube(Timeout):
 
         Arguments:
             numlines(int): Maximum number of lines to receive
-            keep(bool): Keep newlines at the end of each line
+            keep(bool): Keep newlines at the end of each line (default ``False``)
             timeout(int): Maximum timeout
 
         Raises:
@@ -327,6 +328,9 @@ class tube(Timeout):
         with self.countdown(timeout):
             for _ in xrange(numlines):
                 try:
+                    # We must set 'keep' to True here so that we can
+                    # restore the original, unmodified data to the buffer
+                    # in the event of a timeout.
                     res = self.recvline(keep=True, timeout=timeout)
                 except:
                     self.unrecv(''.join(lines))
@@ -342,8 +346,8 @@ class tube(Timeout):
 
         return lines
 
-    def recvline(self, keep = False, timeout = None):
-        r"""recvline(keep = False) -> str
+    def recvline(self, keep = True, timeout = None):
+        r"""recvline(keep = True) -> str
 
         Receive a single line from the tube.
 
@@ -351,7 +355,7 @@ class tube(Timeout):
         all data is buffered and an empty string (``''``) is returned.
 
         Arguments:
-            keep(bool): Keep the line ending
+            keep(bool): Keep the line ending (default ``True``)
             timeout(int): Timeout
 
         Return:
@@ -364,11 +368,11 @@ class tube(Timeout):
             >>> t = tube()
             >>> t.recv_raw = lambda n: 'Foo\nBar\nBaz\n'
             >>> t.recvline()
-            'Foo'
+            'Foo\n'
             >>> t.recvline()
-            'Bar'
-            >>> t.recvline(keep = True)
-            'Baz\n'
+            'Bar\n'
+            >>> t.recvline(keep = False)
+            'Baz'
         """
         return self.recvuntil('\n', drop = not keep, timeout = timeout)
 
@@ -445,12 +449,17 @@ class tube(Timeout):
 
                 >>> t = tube()
                 >>> t.recv_raw = lambda n: "Hello\nWorld\nXylophone\n"
-                >>> t.recvline_startswith('WXYZ')
+                >>> t.recvline_startswith(tuple('WXYZ'))
                 'World'
-                >>> t.recvline_startswith('WXYZ', True)
+                >>> t.recvline_startswith(tuple('WXYZ'), True)
                 'Xylophone\n'
+                >>> t.recvline_startswith('Wo')
+                'World'
         """
-        return self.recvline_pred(lambda line: any(map(line.startswith, tuple(delims))),
+        if not hasattr(delims, '__iter__'):
+            delims = (delims,)
+
+        return self.recvline_pred(lambda line: any(map(line.startswith, delims)),
                                   keep=keep,
                                   timeout=timeout)
 
@@ -473,10 +482,16 @@ class tube(Timeout):
                 >>> t.recv_raw = lambda n: 'Foo\nBar\nBaz\nKaboodle\n'
                 >>> t.recvline_endswith('r')
                 'Bar'
-                >>> t.recvline_endswith('abcde', True)
+                >>> t.recvline_endswith(tuple('abcde'), True)
                 'Kaboodle\n'
+                >>> t.recvline_endswith('oodle')
+                'Kaboodle'
         """
-        delims = tuple(delim + '\n' for delim in tuple(delims))
+        if not hasattr(delims, '__iter__'):
+            delims = (delims,)
+
+        delims = tuple(delim + '\n' for delim in delims)
+
         return self.recvline_pred(lambda line: any(map(line.endswith, delims)),
                                   keep=keep,
                                   timeout=timeout)

@@ -1,6 +1,4 @@
-r"""
-
-"""
+# -*- coding: utf-8 -*-
 import tempfile, subprocess, shutil, tempfile, errno, logging
 from os import path, environ
 from glob import glob
@@ -246,8 +244,8 @@ def cpp(shellcode, **kwargs):
         return _run(cmd, code).strip('\n').rstrip() + '\n'
 
 
-def asm(shellcode, **kwargs):
-    r"""asm(code, ...) -> str
+def asm(shellcode, vma = 0, **kwargs):
+    r"""asm(code, vma = 0, ...) -> str
 
     Runs :func:`cpp` over a given shellcode and then assembles it into bytes.
 
@@ -259,6 +257,7 @@ def asm(shellcode, **kwargs):
 
     Args:
       shellcode(str): Assembler code to assemble.
+      vma(int):       Virtual memory address of the beginning of assembly
       ...: Any arguments/properties that can be set on ``context``
 
     Examples:
@@ -278,7 +277,9 @@ def asm(shellcode, **kwargs):
     with context.local(**kwargs):
         assembler = _assembler()
         objcopy   = _objcopy() + ['-j.shellcode', '-Obinary']
-        code      = _arch_header() + cpp(shellcode)
+        code      = '.org %#x\n' % vma
+        code      += _arch_header()
+        code      += cpp(shellcode)
 
         log.debug('Assembling\n%s' % code)
 
@@ -307,10 +308,11 @@ def asm(shellcode, **kwargs):
             with open(step3) as fd:
                 return fd.read()
 
-            shutil.rmtree(tmpdir)
         except:
             log.error("An error occurred while assembling:\n%s" % code)
             raise
+        else:
+            shutil.rmtree(tmpdir)
 
 
 def disasm(data, vma = 0, **kwargs):
@@ -370,18 +372,19 @@ def disasm(data, vma = 0, **kwargs):
         else:
             objcopy += ['-w', '-N', '*']
 
-        with open(step1, 'w') as fd:
-            fd.write(data)
+        try:
+            with open(step1, 'w') as fd:
+                fd.write(data)
 
-        res = _run(objcopy + [step1, step2])
+            res = _run(objcopy + [step1, step2])
 
-        output0 = subprocess.check_output(objdump + [step2])
-        output1 = output0.split('<.text>:\n')
-        if len(output1) != 2:
-            raise IOError(
-                'Something went wrong with objdump:\n\n%s' % output0
-            )
+            output0 = subprocess.check_output(objdump + [step2])
+            output1 = output0.split('<.text>:\n')
+            if len(output1) != 2:
+                raise IOError('Something went wrong with objdump:\n\n%s' % output0)
+            else:
+                return output1[1].strip('\n').rstrip().expandtabs()
+        except:
+            raise
         else:
             shutil.rmtree(tmpdir)
-            return output1[1].strip('\n').rstrip().expandtabs()
-

@@ -450,11 +450,17 @@ def _hexiichar(c):
         return "%02x " % ord(c)
 
 default_style = {
-    'marker': text.gray if text.has_gray else text.blue,
+    'marker':       text.gray if text.has_gray else text.blue,
     'nonprintable': text.gray if text.has_gray else text.blue,
-    '00': text.red,
-    'ff': text.green,
-    }
+    '00':           text.red,
+    'ff':           text.green,
+}
+
+if 1 or not sys.stdout.isatty():
+  default_style = {
+    'marker': lambda x:x,
+    'nonprintable': lambda x:x,
+  }
 
 def hexdump_iter(s, width = 16, skip = True, hexii = False, begin = 0,
                  style = {}, highlight = []):
