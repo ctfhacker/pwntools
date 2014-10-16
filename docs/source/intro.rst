@@ -27,8 +27,6 @@ This exposes a standard interface to talk to processes, sockets, serial ports,
 and all manner of things, along with some nifty helpers for common tasks.
 For example, remote connections via :mod:`pwnlib.tubes.remote`.
 
-.. doctest:: intro_conn
-
     >>> conn = remote('ftp.debian.org',21)
     >>> conn.recvline()
     '220 ftp.debian.org FTP server\r\n'
@@ -38,6 +36,15 @@ For example, remote connections via :mod:`pwnlib.tubes.remote`.
     >>> conn.recvline()
     'Please specify the password.\r\n'
     >>> conn.close()
+
+It's also easy to spin up a listener
+
+    >>> l = listen()
+    >>> r = remote('localhost', l.lport)
+    >>> c = l.wait_for_connection()
+    >>> r.send('hello')
+    >>> c.recv()
+    'hello'
 
 Interacting with processes is easy thanks to :mod:`pwnlib.tubes.process`.
 

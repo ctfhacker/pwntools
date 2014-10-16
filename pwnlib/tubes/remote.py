@@ -11,11 +11,11 @@ class remote(sock):
     :class:`pwnlib.tubes.sock` and :class:`pwnlib.tubes.tube`.
 
     Args:
-      host(str): The host to connect to.
-      port(int): The port to connect to.
-      fam: The string "any", "ipv4" or "ipv6" or an integer to pass to :func:`socket.getaddrinfo`.
-      typ: The string "tcp" or "udp" or an integer to pass to :func:`socket.getaddrinfo`.
-      timeout: A positive number, None or the string "default".
+        host(str): The host to connect to.
+        port(int): The port to connect to.
+        fam: The string "any", "ipv4" or "ipv6" or an integer to pass to :func:`socket.getaddrinfo`.
+        typ: The string "tcp" or "udp" or an integer to pass to :func:`socket.getaddrinfo`.
+        timeout: A positive number, None or the string "default".
     """
 
     def __init__(self, host, port,

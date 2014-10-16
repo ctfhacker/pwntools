@@ -12,14 +12,14 @@ class listen(sock):
     :class:`pwnlib.tubes.sock` and :class:`pwnlib.tubes.tube`.
 
     Args:
-      port(int): The port to connect to.
-      bindaddr(str): The address to bind to.
-      fam: The string "any", "ipv4" or "ipv6" or an integer to pass to :func:`socket.getaddrinfo`.
-      typ: The string "tcp" or "udp" or an integer to pass to :func:`socket.getaddrinfo`.
-      timeout: A positive number, None or the string "default".
+        port(int): The port to connect to.
+        bindaddr(str): The address to bind to.
+        fam: The string "any", "ipv4" or "ipv6" or an integer to pass to :func:`socket.getaddrinfo`.
+        typ: The string "tcp" or "udp" or an integer to pass to :func:`socket.getaddrinfo`.
+        timeout: A positive number, None or the string "default".
     """
 
-    def __init__(self, port, bindaddr = "0.0.0.0",
+    def __init__(self, port=0, bindaddr = "0.0.0.0",
                  fam = "any", typ = "tcp",
                  timeout = None):
         super(listen, self).__init__(timeout)
