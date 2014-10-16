@@ -53,13 +53,9 @@ class tube(Timeout):
             >>> t.recv() == 'Woohoo'
             True
             >>> context.log_level = 'debug'
-            >>> _ = t.recv() # doctest: ELLIPSIS
+            >>> _ = t.recv() # doctest: +ELLIPSIS
             [...] Received 0xc bytes:
                 'Hello, world'
-            >>> t.recv_raw = lambda n: '\x01\x02\x03\x04' # doctest: ELLIPSIS
-            [...] Received 0x4 bytes:
-                00000000  01 02 03 04                                         │    ││
-                00000004
             >>> context.clear()
 
         """

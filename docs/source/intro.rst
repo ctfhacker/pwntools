@@ -41,7 +41,7 @@ For example, remote connections via :mod:`pwnlib.tubes.remote`.
 
 Interacting with processes is easy thanks to :mod:`pwnlib.tubes.process`.
 
-.. doctest:: intro_proc
+::
 
     >>> sh = process('/bin/sh')
     >>> sh.sendline('sleep 3; echo hello world;')
@@ -63,14 +63,14 @@ a local/setuid exploit with :mod:`pwnlib.tubes.ssh`.  You can quickly spawn
 processes and grab the output, or spawn a process and interact iwth it like
 a ``process`` tube.
 
-.. doctest:: intro_shell
+::
 
     >>> shell = ssh('bandit0', 'bandit.labs.overthewire.org', password='bandit0')
     >>> shell['whoami']
     'bandit0'
     >>> shell.download_file('/etc/motd')
     >>> sh = shell.run('sh')
-    >>> sh.sendline('sleep 3; echo hello world;')
+    >>> sh.sendline('sleep 3; echo hello world;') # doctest: +SKIP
     >>> sh.recvline(timeout=1)
     ''
     >>> sh.recvline(timeout=5)

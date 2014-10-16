@@ -19,6 +19,7 @@ class Module(types.ModuleType):
     def __init__(self):
         self.__file__ = __file__
         self.__name__ = __name__
+        self.disable_color = False
         self.num_colors = termcap.get('colors', default = 8)
         self.has_bright = self.num_colors >= 16
         self.has_gray = self.has_bright
@@ -49,7 +50,7 @@ class Module(types.ModuleType):
 
     @when.setter
     def when(self, val):
-        self._enabled = eval_when(val)
+        self.enabled = eval_when(val)
 
     def _fg_color(self, c):
         return termcap.get('setaf', c) or self._tc.get('setf', c)
@@ -65,7 +66,7 @@ class Module(types.ModuleType):
                 else:
                     return s
             else:
-                if self._enabled:
+                if self.enabled:
                     return init + s + self._reset
                 else:
                     return s
