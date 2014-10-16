@@ -4,7 +4,7 @@
 Implements context management so that nested/scoped contexts and threaded
 contexts work properly and as expected.
 """
-import types, sys, threading, re, collections, string, logging
+import types, sys, threading, re, collections, string, logging, collections
 
 class _defaultdict(dict):
     """
@@ -104,7 +104,7 @@ class _Tls_DictStack(threading.local, _DictStack):
     """
     Per-thread implementation of :class:`_DictStack`.
 
-    Examples: ::
+    Examples:
 
         >>> t = pwnlib.context._Tls_DictStack({})
         >>> t['key'] = 'value'
@@ -118,9 +118,25 @@ class _Tls_DictStack(threading.local, _DictStack):
     pass
 
 
+def _validator(validator):
+
+    name = validator.__name__
+    doc  = validator.__doc__
+
+    def fget(self):
+        return self._tls[name]
+
+    def fset(self, val):
+        self._tls[name] = validator(self, val)
+
+    def fdel(self):
+        self._tls.pop(name,None)
+
+    return property(fget, fset, fdel, doc)
+
 class Thread(threading.Thread):
     """
-    Context-aware thread.  For convenience and avoiding confusion with
+    ContextType-aware thread.  For convenience and avoiding confusion with
     :class:`threading.Thread`, this object can be instantiated via
     :func:`pwnlib.context.thread`.
 
@@ -128,11 +144,11 @@ class Thread(threading.Thread):
     and updates the new thread's context before passing control
     to the user code via ``run`` or ``target=``.
 
-    Examples: ::
+    Examples:
 
         >>> context.reset_local()
         >>> context(arch='arm')
-        Context(arch = 'arm')
+        ContextType(arch = 'arm')
         >>> def p():
         ...     print context
         ...     context.arch = 'mips'
@@ -140,18 +156,18 @@ class Thread(threading.Thread):
         >>> # Note that a normal Thread starts with a clean context
         >>> t = threading.Thread(target=p)
         >>> _=(t.start(), t.join())
-        Context()
-        Context(arch = 'mips')
+        ContextType()
+        ContextType(arch = 'mips')
         >>> # Note that the main Thread's context is unchanged
         >>> context
-        Context(arch = 'arm')
+        ContextType(arch = 'arm')
         >>> # Note that a context-aware Thread receives a copy of the context
         >>> t = Thread(target=p)
         >>> _=(t.start(), t.join())
-        Context(arch = 'arm')
-        Context(arch = 'mips')
+        ContextType(arch = 'arm')
+        ContextType(arch = 'mips')
         >>> context
-        Context()
+        ContextType()
 
     Implementation Details:
 
@@ -178,27 +194,42 @@ class Thread(threading.Thread):
         context.update(**self.old)
         super(Thread, self).__bootstrap()
 
+def _longest(d):
+    """
+    Returns an OrderedDict with the contents of the input dictionary ``d``
+    sorted by the length of the keys, in descending order.
 
-class Context(object):
+    This is useful for performing substring matching via ``str.startswith``,
+    as it ensures the most complete match will be found.
+
+    >>> data = {'a': 1, 'bb': 2, 'ccc': 3}
+    >>> _longest(data) == data
+    True
+    >>> for i in _longest(data): print i
+    ccc
+    bb
+    a
+    """
+    return collections.OrderedDict((k,d[k]) for k in sorted(d, key=len, reverse=True))
+
+def TlsProperty(object):
+    def __get__(self, obj, objtype=None):
+        return obj._tls
+
+class ContextType(object):
     r"""
     Class for specifying information about the target machine.
     Intended for use as a pseudo-singleton through the global
-    variable :data:`pwnlib.context.context`, available via
+    variable ``pwnlib.context.context``, available via
     ``from pwn import *`` as ``context``.
 
-    Many classes/functions **require** that information such as the target
-    OS or architecture be specified in the global ``context`` structure.
-
-    Some routines will allow specifying a different architecture as arguments,
-    but use the ``context``-provided values as defaults.
-
-    The context is usually specified at the top of the Python file for clarity.::
+    The context is usually specified at the top of the Python file for clarity. ::
 
         #!/usr/bin/env python
         context(arch='i386', os='linux')
 
     Currently supported properties and their defaults are listed below.
-    The defaults are inherited from :attr:`defaults`.
+    The defaults are inherited from :data:`pwnlib.context.ContextType.defaults`.
 
     Additionally, the context is thread-aware when using
     :class:`pwnlib.context.Thread` instead of :class:`threading.Thread`
@@ -206,21 +237,10 @@ class Context(object):
 
     The context is also scope-aware by using the ``with`` keyword.
 
-    Attributes:
+    Examples:
 
-        arch(str):      Target CPU architecture
-        bits(int):      Target CPU register/word size, in bits
-        bytes(int):     Target CPU register/word size, in bytes
-        endian(str):    Target CPU endian-ness
-        log_level(int): Logging verbosity for :mod:`pwnlib.log`
-        os(str):        Target Operating System
-        signed(bool):   Signed-ness for packing operations in :mod:`pwnlib.util.packing`
-
-    Examples: ::
-
-        >>> from pwn import *
         >>> context
-        Context()
+        ContextType()
         >>> context.update(os='linux')
         ...
         >>> context.os == 'linux'
@@ -233,16 +253,16 @@ class Context(object):
         >>> context.bits
         32
         >>> def nop():
-        ...   print asm('nop').encode('hex')
+        ...   print pwnlib.asmasm('nop').encode('hex')
         >>> nop()
         00f020e3
-        >>> with context.local(arch = 'x86'):
+        >>> with context.local(arch = 'i386'):
         ...   nop()
         90
         >>> with context.local(arch = 'mips'):
         ...     pwnthread = context.thread(target=nop)
         ...     thread = threading.Thread(target=nop)
-        >>> # Normal thread uses the default value for arch, 'x86'
+        >>> # Normal thread uses the default value for arch, 'i386'
         >>> _=(thread.start(), thread.join())
         90
         >>> # Pwnthread uses the correct context from creation-time
@@ -256,61 +276,77 @@ class Context(object):
     # Use of 'slots' is a heavy-handed way to prevent accidents
     # like 'context.architecture=' instead of 'context.arch='.
     #
-    # Setting any properties on a Context object will throw an
+    # Setting any properties on a ContextType object will throw an
     # exception.
     #
     __slots__ = '_tls',
 
-    #: Valid values for :class:`pwnlib.context.Context`
+    #: Default values for :class:`pwnlib.context.ContextType`
     defaults = {
         'bits': 32,
         'os': 'linux',
-        'arch': 'x86',
+        'arch': 'i386',
         'endian': 'little',
         'signed': False,
         'timeout': 1,
         'log_level': logging.INFO
     }
 
-    #: Valid values for :attr:`pwnlib.context.Context.os`
+    #: Valid values for :meth:`pwnlib.context.ContextType.os`
     oses = sorted(('linux','freebsd','windows'))
 
-    #: Valid values for :attr:`pwnlib.context.Context.arch`
-    architectures = sorted(('alpha',
-                            'arm',
-                            'cris',
-                            'x86',
-                            'm68k',
-                            'mips',
-                            'powerpc',
-                            'thumb'))
+    big_32    = {'endian': 'big', 'bits': 32}
+    big_64    = {'endian': 'big', 'bits': 64}
+    little_16 = {'endian': 'little', 'bits': 16}
+    little_32 = {'endian': 'little', 'bits': 32}
+    little_64 = {'endian': 'little', 'bits': 64}
 
-    #: Valid values for :attr:`pwnlib.context.Context.endian`
-    endiannesses = {
+    #: Keys are valid values for :meth:`pwnlib.context.ContextType.arch`.
+    #
+    #: Values are defaults which are set when
+    #: :attr:`pwnlib.context.ContextType.arch` is set
+    architectures = _longest({
+        'aarch64':   little_64,
+        'alpha':     little_64,
+        'amd64':     little_64,
+        'arm':       little_32,
+        'cris':      little_32,
+        'i386':      little_64,
+        'm68k':      big_32,
+        'mips':      little_32,
+        'mips64':    little_64,
+        'msp430':    little_16,
+        'powerpc':   big_32,
+        'powerpc64': big_64,
+        's390':      big_32,
+        'thumb':     little_32,
+    })
+
+    #: Valid values for :attr:`endian`
+    endiannesses = _longest({
         'be':     'big',
         'eb':     'big',
         'big':    'big',
         'le':     'little',
         'el':     'little',
         'little': 'little'
-    }
+    })
 
-    #: Value values for :attr:`pwnlib.context.Context.signed`
+    #: Valid string values for :attr:`signed`
     signednesses = {
-        'unsigned': 0,
-        'no':       0,
-        'yes':      1,
-        'signed':   1
+        'unsigned': False,
+        'no':       False,
+        'yes':      True,
+        'signed':   True
     }
-
 
     def __init__(self, **kwargs):
         """
-        Initialize the Context structure.
+        Initialize the ContextType structure.
 
         All keyword arguments are passed to :func:`update`.
         """
-        self._tls = _Tls_DictStack(_defaultdict(Context.defaults))
+        self._tls = _Tls_DictStack(_defaultdict(ContextType.defaults))
         self.update(**kwargs)
 
 
@@ -318,12 +354,12 @@ class Context(object):
         """
         Returns a copy of the current context as a dictionary.
 
-        Examples: ::
+        Examples:
 
             >>> context.reset_local()
-            >>> context.arch = 'x86'
+            >>> context.arch = 'i386'
             >>> context.os   = 'linux'
-            >>> context.copy() == {'arch': 'x86', 'os': 'linux'}
+            >>> context.copy() == {'arch': 'i386', 'os': 'linux'}
             True
         """
         return self._tls.copy()
@@ -350,10 +386,13 @@ class Context(object):
         Args:
           kwargs: Variables to be assigned in the environment.
 
-        Examples: ::
-            >>> context(arch = 'x86', os = 'linux')
+        Examples:
+
+            >>> context.arch.reset_local()
+            >>> context(arch = 'i386', os = 'linux')
+            ...
             >>> context.arch, context.os
-            ('x86', 'linux')
+            ('i386', 'linux')
         """
         for arg in args:
             self.update(**arg)
@@ -377,19 +416,19 @@ class Context(object):
           kwargs: Variables to be assigned in the new environment.
 
         Returns:
-          Context manager for managing the old and new environment.
+          ContextType manager for managing the old and new environment.
 
-        Examples: ::
+        Examples:
             >>> context
-            Context()
+            ContextType()
             >>> with context.local(arch = 'mips'):
             ...     print context
             ...     context.arch = 'arm'
             ...     print context
-            Context(arch = 'mips')
-            Context(arch = 'arm')
+            ContextType(arch = 'mips')
+            ContextType(arch = 'arm')
             >>> print context
-            Context()
+            ContextType()
         """
         class LocalContext(object):
             def __enter__(a):
@@ -405,6 +444,27 @@ class Context(object):
     def reset_local(self):
         """
         Clears the contents innermost scoped context on the context stack.
+
+        Examples:
+
+            >>> # Default value
+            >>> print context.os
+            i386
+            >>> # Inside of a scope, use reset_local
+            >>> context.os = 'arm'
+            >>> with context.local():
+            ...     print context.os
+            ...     context.reset_local()
+            ...     print context.os
+            arm
+            i386
+            >>> # Outer scope is unaffected
+            >>> print context.os
+            arm
+            >>> # It can also be used in the global scope
+            >>> context.reset_local()
+            >>> print context.os
+            i386
         """
         self._tls._current.clear()
 
@@ -434,25 +494,28 @@ class Context(object):
     @property
     def arch(self):
         """
-        Variable for the current architecture. This is useful e.g. to make
-        :mod:`pwnlib.shellcraft` easier to use.
+        Target machine architecture.
 
-        Allowed values are enumerated in :data:`pwnlib.context.arch.valid`
+        Allowed values are listed in :attr:`pwnlib.context.ContextType.architectures`.
 
-        Setting this may also update :data:`pwnlib.context.word_size`
-        and :data:`pwnlib.context.endianness` by specifying an architecture
-        suffix in the form of ``mipsel64`` (for 64-bit little-endian
-        MIPS).
+        .. _side-effects:
+        Side Effects:
 
-        Finally, some convenience transformations may be made.
-        For example, specifying 'ppc' will be tranlsated to 'powerpc'.
+            Depending on the architecture specified, the default values for
+            the following default values for context properties may be updated:
+
+            - :attr:`bits`
+            - :attr:`endian`
+
+            Note that these changes only affect the **default** context values.
+            They will not override user-specified values.
 
         Raises:
             ValueError: An invalid architecture was specified
 
-        Examples: ::
+        Examples:
             >>> context.reset_local()
-            >>> context.arch == 'x86'
+            >>> context.arch == 'i386' # Default architecture
             True
 
             >>> context.arch = 'mips'
@@ -462,32 +525,38 @@ class Context(object):
             >>> context.arch = 'doge' #doctest: +ELLIPSIS
             Traceback (most recent call last):
              ...
-            ValueError: arch must be one of ['alpha', 'arm', 'cris', 'm68k', 'mips', 'powerpc', 'thumb', 'x86']
+            ValueError: arch must be one of ['alpha', ..., 'thumb']
 
             >>> context.arch = 'ppc'
-            >>> context.arch == 'powerpc'
+            >>> context.arch == 'powerpc' # Aliased architecture
             True
 
-            >>> context.bits != 64
+            >>> context.reset_local()
+            >>> context.bits == 32 # Default value
             True
+            >>> context.arch = 'amd64'
+            >>> context.bits == 64 # New default value
+            True
+
+            Note that expressly setting :attr:`bits` means that we use
+            that value instead of the default
+
+            >>> context.reset_local()
+            >>> context.bits = 32
             >>> context.arch = 'aarch64'
-            >>> context.bits == 64
-            True
-
-            >>> context.arch = 'powerpc32be'
-            >>> context.endianness == 'big'
-            True
             >>> context.bits == 32
             True
-            >>> context.arch == 'powerpc'
-            True
 
-            >>> context.arch = 'mips-64-little'
-            >>> context.arch == 'mips'
+            Setting the architecture can override the defaults for
+            both :attr:`endian` and :attr:`bits`
+
+            >>> context.reset_local()
+            >>> context.arch = 'powerpc64'
+            >>> context.endian == 'big'
             True
             >>> context.bits == 64
             True
-            >>> context.endianness == 'little'
+            >>> context.arch == 'powerpc'
             True
         """
         return self._tls['arch']
@@ -495,168 +564,32 @@ class Context(object):
 
     @arch.setter
     def arch(self, arch):
-        transform = {
-            'aarch': 'arm',
-            'ppc':   'powerpc',
-            'i386':  'x86_32',
-            'amd64': 'x86_64'
-        }
-
         # Lowercase, remove everything non-alphanumeric
         arch = arch.lower()
         arch = arch.replace(string.punctuation, '')
 
         # Attempt to perform convenience and legacy compatibility
         # transformations.
+        transform = {'x86':'i386', 'ppc': 'powerpc'}
         for k, v in transform.items():
             if arch.startswith(k):
                 arch = arch.replace(k,v,1)
 
-
-        # Attempt to match on the leading architecture name
-        # Everything else is stored in 'tail'
-        tail = ''
-
-        for a in Context.architectures:
-            if arch.startswith(a):
-                self._tls['arch'] = a
-                tail              = arch[len(a):]
-                break
+        try:
+            self.defaults.update(ContextType.architectures[arch])
+        except KeyError:
+            raise ValueError('arch must be one of %r' % sorted(ContextType.architectures))
         else:
-            raise ValueError('arch must be one of %r' % (self.architectures,))
-
-
-        # Attempt to figure out whatever is left over.
-        # Regex makes use of the fact that word_size must be digits,
-        # and the endianness must be ascii.
-        expr = r'([0-9]+|[a-z]+)'
-        hits = re.findall(expr, tail)
-
-        for hit in hits:
-            if hit.isdigit(): self.bits       = hit
-            if hit.isalpha(): self.endianness = hit
-
-
-    @property
-    def endianness(self):
-        """
-        Endianness of the target machine.
-
-        The default value is 'little'.
-
-        Raises:
-            ValueError: An invalid endianness was provided
-
-        Examples: ::
-            >>> context.reset_local()
-            >>> context.endianness == 'little'
-            True
-
-            >>> context.endianness = 'big'
-            >>> context.endianness
-            'big'
-
-            >>> context.endianness = 'be'
-            >>> context.endianness == 'big'
-            True
-
-            >>> context.endianness = 'foobar' #doctest: +ELLIPSIS
-            Traceback (most recent call last):
-             ...
-            ValueError: endianness must be one of ['be', 'big', 'eb', 'el', 'le', 'little']
-        """
-        return self._tls['endian']
-
-    @endianness.setter
-    def endianness(self, endianness):
-        endianness = endianness.lower()
-
-        if endianness not in Context.endiannesses:
-            raise ValueError("endianness must be one of %r" % sorted(Context.endiannesses))
-
-        self._tls['endian'] = Context.endiannesses[endianness]
-
-    @property
-    def endian(self):
-        """
-        Alias for ``endianness``.
-
-        Examples: ::
-            >>> context.endian == context.endianness
-            True
-        """
-        return self.endianness
-    @endian.setter
-    def endian(self, value):
-        self.endianness = value
-
-    @property
-    def os(self):
-        """
-        Operating system of the target machine.
-
-        The default value is ``linux``.
-
-        Allowed values are listed in :attr:`oses`.
-
-        Examples: ::
-            >>> context.os = 'linux'
-            >>> context.os = 'foobar' #doctest: +ELLIPSIS
-            Traceback (most recent call last):
-            ...
-            ValueError: os must be one of ['freebsd', 'linux', 'windows']
-        """
-        return self._tls['os']
-
-    @os.setter
-    def os(self, os):
-        os = os.lower()
-
-        if os not in Context.oses:
-            raise ValueError("os must be one of %r" % sorted(Context.oses))
-
-        self._tls['os'] = os
-
-    @property
-    def timeout(self):
-        """
-        Default amount of time to wait for a blocking operation before it times out,
-        specified in seconds.
-
-        The default value is ``1``.
-
-        Any floating point value is accepted, as well as the special
-        string ``'inf'`` which implies that a timeout can never occur.
-
-
-        Examples: ::
-            >>> context.timeout == 1
-            True
-            >>> context.timeout = 'inf'
-            >>> context.timeout > 2**256
-            True
-            >>> context.timeout - 30
-            inf
-        """
-        return self._tls['timeout']
-
-    @timeout.setter
-    def timeout(self, value):
-        value = float(value)
-
-        if value < 0:
-            raise ValueError("timeout must not be negative (%r)" % value)
-
-        self._tls['timeout'] = value
+            self._tls['arch'] = arch
 
     @property
     def bits(self):
         """
         Word size of the target machine, in bits (i.e. the size of general purpose registers).
 
-        The default value is ``32``.
+        The default value is ``32``, but changes according to :attr:`arch`.
 
-        Examples: ::
+        Examples:
             >>> context.reset_local()
             >>> context.bits == 32
             True
@@ -686,7 +619,7 @@ class Context(object):
 
         This is a convenience wrapper around ``bits / 8``.
 
-        Examples: ::
+        Examples:
             >>> context.bytes = 1
             >>> context.bits == 8
             True
@@ -702,6 +635,132 @@ class Context(object):
     def bytes(self, value):
         self.bits = 8*value
 
+    @property
+    def endian(self):
+        """
+        Endianness of the target machine.
+
+        The default value is ``'little'``, but changes according to :attr:`arch`.
+
+        Raises:
+            ValueError: An invalid endianness was provided
+
+        Examples:
+            >>> context.reset_local()
+            >>> context.endian == 'little'
+            True
+
+            >>> context.endian = 'big'
+            >>> context.endian
+            'big'
+
+            >>> context.endian = 'be'
+            >>> context.endian == 'big'
+            True
+
+            >>> context.endian = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+             ...
+            ValueError: endian must be one of ['be', 'big', 'eb', 'el', 'le', 'little']
+        """
+        return self._tls['endian']
+
+    @endian.setter
+    def endian(self, endian):
+        endian = endianness.lower()
+
+        if endian not in ContextType.endiannesses:
+            raise ValueError("endian must be one of %r" % sorted(ContextType.endiannesses))
+
+        self._tls['endian'] = ContextType.endiannesses[endian]
+
+
+    @property
+    def keep_line_ends(self):
+        r"""
+        Determines whether, by default, :meth:`pwnlib.tubes.tube.tube.recvline`
+        and related routines will strip newlines.
+
+        Default value is ``True``
+
+        Examples:
+
+            >>> context.keep_line_ends
+            True
+            >>> t = pwnlibe.tubes.tube.tube()
+            >>> t.recv_raw = lambda: 'Hello\nWorld\n'
+            >>> t.recvline()
+            'Hello\n'
+            >>> contet.keep_line_ends = False
+            >>> t.recvline()
+            'World'
+        """
+
+        return self._tls['keep_line_ends']
+
+    @keep_line_ends.setter
+    def keep_line_ends(self, value):
+        self._tls['keep_line_ends'] = bool(value)
+
+    @property
+    def os(self):
+        """
+        Operating system of the target machine.
+
+        The default value is ``linux``.
+
+        Allowed values are listed in :attr:`pwnlib.context.ContextType.oses`.
+
+        Examples:
+            >>> context.os = 'linux'
+            >>> context.os = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            ValueError: os must be one of ['freebsd', 'linux', 'windows']
+        """
+        return self._tls['os']
+
+    @os.setter
+    def os(self, os):
+        os = os.lower()
+
+        if os not in ContextType.oses:
+            raise ValueError("os must be one of %r" % sorted(ContextType.oses))
+
+        self._tls['os'] = os
+
+    @property
+    def timeout(self):
+        """
+        Default amount of time to wait for a blocking operation before it times out,
+        specified in seconds.
+
+        The default value is ``1``.
+
+        Any floating point value is accepted, as well as the special
+        string ``'inf'`` which implies that a timeout can never occur.
+
+
+        Examples:
+            >>> context.timeout == 1
+            True
+            >>> context.timeout = 'inf'
+            >>> context.timeout > 2**256
+            True
+            >>> context.timeout - 30
+            inf
+        """
+        return self._tls['timeout']
+
+    @timeout.setter
+    def timeout(self, value):
+        value = float(value)
+
+        if value < 0:
+            raise ValueError("timeout must not be negative (%r)" % value)
+
+        self._tls['timeout'] = value
+
 
     @property
     def log_level(self):
@@ -712,7 +771,7 @@ class Context(object):
 
         Default value is set to ``INFO``.
 
-        Examples: ::
+        Examples:
             >>> context.log_level == logging.INFO
             True
             >>> context.log_level = 'error'
@@ -753,7 +812,7 @@ class Context(object):
         values ``'signed'`` or ``'unsigned'`` which are converted into
         ``True`` and ``False`` correspondingly.
 
-        Examples: ::
+        Examples:
             >>> context.signed
             False
             >>> context.signed = 1
@@ -774,11 +833,11 @@ class Context(object):
 
     @signed.setter
     def signed(self, signed):
-        try:             signed = Context.signednesses[signed]
+        try:             signed = ContextType.signednesses[signed]
         except KeyError: pass
 
         if isinstance(signed, str):
-            raise ValueError('signed must be one of %r or a non-string truthy value' % sorted(Context.signednesses))
+            raise ValueError('signed must be one of %r or a non-string truthy value' % sorted(ContextType.signednesses))
 
         self._tls['signed'] = bool(signed)
 
@@ -791,11 +850,11 @@ class Context(object):
 
         Default value is ``'\n'``
 
-        Example:
+        Examples:
 
             >>> context.newline
             '\n'
-            >>> t = tube()
+            >>> t = pwnlib.tubes.tube.tube()
             >>> t.recv_raw = lambda: 'Hello\r\nWorld\r\n'
             >>> t.recvlines(2)
             ['Hello\r', 'World\r']
@@ -809,32 +868,6 @@ class Context(object):
     def newline(self, value):
         self._tls['newline'] = value
 
-    @property
-    def keep_line_ends(self):
-        r"""
-        Determines whether, by default, :meth:`pwnlib.tubes.tube.tube.recvline`
-        and related routines will strip newlines.
-
-        Default value is ``True``
-
-        Example:
-
-            >>> context.keep_line_ends
-            True
-            >>> t = tube()
-            >>> t.recv_raw = lambda: 'Hello\nWorld\n'
-            >>> t.recvline()
-            'Hello\n'
-            >>> contet.keep_line_ends = False
-            >>> t.recvline()
-            'World'
-        """
-
-        return self._tls['keep_line_ends']
-
-    @keep_line_ends.setter
-    def keep_line_ends(self, value):
-        self._tls['keep_line_ends'] = bool(value)
 
     @property
     def foo(self):
@@ -857,17 +890,14 @@ class Context(object):
 
     def __call__(self, **kwargs):
         """
-        .. deprecated::
-            Legacy compatibility wrapper for :func:`update`.
-            Use that instead.
+        Alias for :meth:`pwnlib.context.ContextType.update`
         """
         return self.update(**kwargs)
 
     @property
     def word_size(self):
         """
-        .. deprecated::
-            Legacy support.  Use :attr:`bits`.
+        Alias for :attr:`bits`
         """
         return self.bits
 
@@ -878,8 +908,7 @@ class Context(object):
     @property
     def signedness(self):
         """
-        .. deprecated::
-            Legacy support.  Use :attr:`signed` instead.
+        Alias for :attr:`signed`
         """
         return self.signed
 
@@ -890,8 +919,7 @@ class Context(object):
     @property
     def sign(self):
         """
-        .. deprecated::
-            Legacy support.  Use :attr:`signed` instead.
+        Alias for :attr:`signed`
         """
         return self.signed
 
@@ -900,5 +928,18 @@ class Context(object):
         self.signed = value
 
 
+    @property
+    def endianness(self):
+        """
+        Legacy alias for :attr:`endian`.
 
-context = Context()
+        Examples:
+            >>> context.endian == context.endianness
+            True
+        """
+        return self.endian
+    @endianness.setter
+    def endianness(self, value):
+        self.endian = value
+
+context = ContextType()

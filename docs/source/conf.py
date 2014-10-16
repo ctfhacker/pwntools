@@ -39,7 +39,7 @@ extensions = [
 doctest_global_setup = '''
 import pwnlib
 pwnlib.context.context.reset_local()
-pwnlib.context.Context.defaults['log_level'] = 'ERROR'
+pwnlib.context.ContextType.defaults['log_level'] = 'ERROR'
 '''
 
 autodoc_member_order = 'alphabetical'

@@ -32,26 +32,21 @@ def _find(util, **kwargs):
             ...
             Traceback (most recent call last):
             ...
-            Exception: Could not find 'as' installed for Context(arch = 'powerpc', bits = 64)
+            Exception: Could not find 'as' installed for ContextType(arch = 'powerpc', bits = 64)
     """
     with context.local(**kwargs):
         arch = context.arch
         bits = context.bits
 
-        transform = {
-            ('arm',64): ('aarch',64),
-            ('thumb',32): ('arm',32),
-        }
+        # Fix up pwntools vs Debian triplet naming
+        arch = {
+            'thumb': 'arm',
+            'i386':  'x86_64',
+            'amd64': 'x86_64',
+        }.get(arch, arch)
 
-        if (arch,bits) in transform:
-            (arch,bits) = transform[arch,bits]
-
-        start = arch
-
-        if bits != 32:
-            start += '*%s' % bits
-
-        pattern = '%s*-%s' % (start,util)
+        # e.g. aarch64*-as
+        pattern = '%s*-%s' % (arch,util)
 
         for dir in environ['PATH'].split(':'):
             res = glob(path.join(dir, pattern))
@@ -78,7 +73,8 @@ def _assembler():
     }[context.endianness]
 
     assemblers = {
-        'x86'    : [gas, '--%s' % context.bits],
+        'i386'   : [gas, '--32'],
+        'amd64'  : [gas, '--64'],
         'thumb'  : [gas, '-thumb', E],
         'arm'    : [gas, E],
         'aarch64': [gas, E],
@@ -95,7 +91,7 @@ def _objcopy():
 def _objdump():
     path = [_find('objdump')]
 
-    if context.arch == 'x86':
+    if context.arch in ('i386', 'amd64'):
         path += ['-Mintel']
 
     return path
@@ -104,9 +100,6 @@ def _objdump():
 def _include_header():
     os   = context.os
     arch = context.arch
-
-    if arch == 'x86':
-        arch = { 32: 'i386', 64: 'amd64' }[context.bits]
 
     if os == 'freebsd':
         return '#include <freebsd.h>\n'
@@ -119,7 +112,8 @@ def _include_header():
 def _arch_header():
     prefix  = ['.section .shellcode,"ax"']
     headers = {
-        'x86'  :  ['.intel_syntax noprefix'],
+        'i386'  :  ['.intel_syntax noprefix'],
+        'amd64' :  ['.intel_syntax noprefix'],
         'arm'   : ['.syntax unified',
                    '.arch armv7-a',
                    '.arm'],
@@ -137,9 +131,6 @@ def _arch_header():
 
 def _bfdname():
     arch = context.arch
-
-    if arch == 'x86':
-        arch = { 32: 'i386', 64: 'amd64' }[context.bits]
 
     bfdnames = {
         'i386'    : 'elf32-i386',
@@ -162,18 +153,18 @@ def _bfdname():
 
 
 def _bfdarch():
-    arch, bits = context.arch, context.bits
-    if arch == 'x86':
-        return {
-        32: 'i386',
-        64: 'i386:x86-64'
-        }[bits]
-    if arch == 'thumb':
-        return 'arm'
-    if arch == 'ia64':
-        return 'ia64-elf64'
-    return arch
+    arch = context.arch
+    convert = {
+    'i386': 'i386',
+    'amd64': 'i386:x86-64',
+    'thumb': 'arm',
+    'ia64': 'ia64-elf64'
+    }
 
+    if arch in convert:
+        return convert[arch]
+
+    return arch
 
 def _run(cmd, stdin = None):
     import subprocess

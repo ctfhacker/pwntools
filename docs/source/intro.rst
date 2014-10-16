@@ -75,6 +75,7 @@ a ``process`` tube.
     ''
     >>> sh.recvline(timeout=5)
     'hello world\n'
+    >>> shell.close()
 
 Packing Integers
 ------------------

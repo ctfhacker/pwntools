@@ -44,7 +44,7 @@ class lazymodule(ModuleType):
         # Internal fields
         self._dir        = directory
         self._absdir     = join(template_dir, directory)
-        self._submodules = {} # 'i386'  => module('pwnlib.shellcraft.i386')
+        self._submodules = {} # 'i386'  => lazymodule('pwnlib.shellcraft.i386')
         self._shellcodes = {} # 'dupsh' => 'i386/linux/dupsh.asm'
 
         # Load the docstring from the '__doc__' file
@@ -69,13 +69,13 @@ class lazymodule(ModuleType):
                 mod_name = self.__name__ + '.' + name
                 mod_path = join(self._dir, name)
 
-                self._submodules[name] = module(mod_name, mod_path)
+                self._submodules[name] = lazymodule(mod_name, mod_path)
 
             elif isfile(path):
                 funcname, ext = splitext(name)
 
                 if not is_identifier(funcname) or ext != '.asm':
-                    log.warning('Skipping %r' % path)
+                    continue
 
                 self._shellcodes[funcname] = name
 
