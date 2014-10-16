@@ -71,6 +71,9 @@ class ELF(ELFFile):
                 self.execstack = True
                 info('Stack is executable!')
 
+    def __repr__(self):
+        return "ELF(%r)" % self.path
+
     @property
     def elfclass(self):
         """ELF class (32 or 64).
