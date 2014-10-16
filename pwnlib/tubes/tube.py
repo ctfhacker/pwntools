@@ -1,9 +1,10 @@
+# -*- coding: utf-8 -*-
 from .buffer import Buffer
 from .timeout import Timeout
 from .. import context, term, atexit
-from ..util import misc
+from ..util import misc, fiddling
 from ..context import context
-import re, threading, sys, time, subprocess, logging
+import re, threading, sys, time, subprocess, logging, string
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class tube(Timeout):
 
     # Functions based on functions from subclasses
     def recv(self, numb = 2**20, timeout = None):
-        """recv(numb = 2**31, timeout = None) -> str
+        r"""recv(numb = 2**31, timeout = None) -> str
 
         Receives up to `numb` bytes of data from the tube, and returns
         as soon as any quantity of data is available.
@@ -48,6 +49,19 @@ class tube(Timeout):
             >>> t.recv_raw = lambda n: 'Hello, world'
             >>> t.recv() == 'Hello, world'
             True
+            >>> t.unrecv('Woohoo')
+            >>> t.recv() == 'Woohoo'
+            True
+            >>> context.log_level = 'debug'
+            >>> _ = t.recv() # doctest: ELLIPSIS
+            [...] Received 0xc bytes:
+                'Hello, world'
+            >>> t.recv_raw = lambda n: '\x01\x02\x03\x04' # doctest: ELLIPSIS
+            [...] Received 0x4 bytes:
+                00000000  01 02 03 04                                         │    ││
+                00000004
+            >>> context.clear()
+
         """
         return self._recv(numb, timeout) or ''
 
@@ -103,8 +117,12 @@ class tube(Timeout):
 
         if data and log.isEnabledFor(logging.DEBUG):
             log.debug('Received %#x bytes:' % len(data))
-            for line in data.splitlines(True):
-                log.indented(repr(line), level=logging.DEBUG)
+
+            if all(c in string.printable for c in data):
+                for line in data.splitlines(True):
+                    log.indented(repr(line), level=logging.DEBUG)
+            else:
+                log.indented(fiddling.hexdump(data))
 
         if data:
             self.buffer.add(data)
@@ -625,14 +643,17 @@ class tube(Timeout):
             >>> def p(x): print repr(x)
             >>> t = tube()
             >>> t.send_raw = p
-            >>> t.sendline('hello')
+            >>> t.send('hello')
             'hello'
         """
 
         if log.isEnabledFor(logging.DEBUG):
             log.debug('Sent %#x bytes:' % len(data))
-            for line in data.splitlines(True):
-                log.indent(repr(line), level=logging.DEBUG)
+            if all(c in string.printable for c in data):
+                for line in data.splitlines(True):
+                    log.indented(repr(line), level=logging.DEBUG)
+            else:
+                log.indented(fiddling.hexdump(data))
         self.send_raw(data)
 
     def sendline(self, line):
@@ -780,6 +801,7 @@ class tube(Timeout):
             >>> t.clean_and_log() #doctest: +ELLIPSIS
             [...] Cleaning tube (fileno = 1234):
                 hooray_data
+            >>> context.clear()
         """
 
         if self.connected():

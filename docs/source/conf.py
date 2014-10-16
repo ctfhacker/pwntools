@@ -301,5 +301,4 @@ def linkcode_resolve(domain, info):
             except IOError:
                 pass
 
-    print "https://github.com/Gallopsled/pwntools/blob/%s/%s" % (branch, filename)
     return "https://github.com/Gallopsled/pwntools/blob/%s/%s" % (branch, filename)

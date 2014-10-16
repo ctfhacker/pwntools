@@ -103,6 +103,9 @@ class process(tube):
         pass
 
     def can_recv_raw(self, timeout):
+        if timeout > 2**31:
+            timeout = 2**31
+
         if timeout == None:
             return select.select([self.proc.stdout], [], []) == ([self.proc.stdout], [], [])
 

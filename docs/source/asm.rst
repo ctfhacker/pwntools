@@ -34,7 +34,7 @@ Assembly
     in the :mod:`shellcraft` module.
 
         >>> asm(shellcraft.sh())
-        '1\xc0Pj\x01\xfe\x0c$h//shh/bin\x89\xe1PTTQP\xb0\x0b\xcd\x80'
+        '1\xc9\xf7\xe9j\x01\xfe\x0c$h//shh/bin\xb0\x0b\x89\xe3\xcd\x80'
 
 Disassembly
 ------------------------

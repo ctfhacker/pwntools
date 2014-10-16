@@ -692,8 +692,6 @@ class ContextType(object):
 
         Examples:
 
-            >>> context.log_level == logging.INFO
-            True
             >>> context.log_level = 'error'
             >>> context.log_level == logging.ERROR
             True
@@ -715,29 +713,6 @@ class ContextType(object):
         level_names = filter(lambda x: isinstance(x,str), logging._levelNames)
         permitted = sorted(level_names)
         raise AttributeError('log_level must be an integer or one of %r' % permitted)
-
-
-    @_validator
-    def newline(self, value):
-        r"""
-        Defines the newline character, as interpreted by objects from
-        :mod:`pwntools.tubes`.
-
-        Default value is ``'\n'``
-
-        Examples:
-
-            >>> context.newline
-            '\n'
-            >>> t = pwnlib.tubes.tube.tube()
-            >>> t.recv_raw = lambda n: 'Hello\r\nWorld\r\n'
-            >>> t.recvlines(2)
-            ['Hello\r', 'World\r']
-            >>> context.newline = '\r\n'
-            >>> t.recvlines(2)
-            ['Hello', 'World']
-        """
-        return value
 
 
     @_validator
@@ -823,9 +798,6 @@ class ContextType(object):
         Any floating point value is accepted, as well as the special
         string ``'inf'`` which implies that a timeout can never occur.
 
-        For compatibility with the standard library module ``select``,
-        timeout is capped at 2**31.
-
         Examples:
 
             >>> context.timeout == 1
@@ -840,9 +812,6 @@ class ContextType(object):
 
         if value < 0:
             raise AttributeError("timeout must not be negative (%r)" % value)
-        if value > 2**31:
-            value = 2**31
-
         return value
 
 

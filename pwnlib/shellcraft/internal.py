@@ -16,10 +16,7 @@ def init_mako():
     curdir = os.path.dirname(os.path.abspath(__file__))
     lookup = TemplateLookup(
         directories      = [os.path.join(curdir, 'templates')],
-        module_directory = os.path.expanduser('~/.pwntools-cache/mako'),
-
-        # XXX Zach needs to remember to remove this
-        cache_enabled    = False
+        module_directory = os.path.expanduser('~/.pwntools-cache/mako')
     )
 
     # The purpose of this definition is to create a new Tag.
