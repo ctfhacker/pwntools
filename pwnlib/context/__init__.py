@@ -823,6 +823,8 @@ class ContextType(object):
         Any floating point value is accepted, as well as the special
         string ``'inf'`` which implies that a timeout can never occur.
 
+        For compatibility with the standard library module ``select``,
+        timeout is capped at 2**31.
 
         Examples:
 
@@ -838,6 +840,8 @@ class ContextType(object):
 
         if value < 0:
             raise AttributeError("timeout must not be negative (%r)" % value)
+        if value > 2**31:
+            value = 2**31
 
         return value
 

@@ -8,6 +8,14 @@ from .process import process
 
 log = logging.getLogger(__name__)
 
+# Kill the warning line:
+# No handlers could be found for logger "paramiko.transport"
+paramiko_log = logging.getLogger("paramiko.transport")
+h = logging.StreamHandler(file('/dev/null','w+'))
+h.setFormatter(logging.Formatter())
+paramiko_log.addHandler(h)
+
+
 class ssh_channel(sock):
     def __init__(self, parent, process = None, tty = False, wd = None, env = None, timeout = None):
         super(ssh_channel, self).__init__(timeout)

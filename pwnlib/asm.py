@@ -103,7 +103,7 @@ def _include_header():
 
     if os == 'freebsd':
         return '#include <freebsd.h>\n'
-    elif os == 'linux' and arch:
+    elif os == 'linux':
         return '#include <linux/%s.h>\n' % arch
     else:
         return ''

@@ -31,6 +31,7 @@ class process(tube):
         fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         log.success("Started program %r" % self.program)
+        log.debug("...with arguments %r" % args)
 
     def kill(self):
         """kill()
@@ -104,8 +105,9 @@ class process(tube):
     def can_recv_raw(self, timeout):
         if timeout == None:
             return select.select([self.proc.stdout], [], []) == ([self.proc.stdout], [], [])
-        else:
-            return select.select([self.proc.stdout], [], [], timeout) == ([self.proc.stdout], [], [])
+
+        timeout = int(timeout)
+        return select.select([self.proc.stdout], [], [], timeout) == ([self.proc.stdout], [], [])
 
     def connected_raw(self, direction):
         if direction == 'any':

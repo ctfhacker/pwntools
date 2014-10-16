@@ -423,8 +423,7 @@ def waitfor(msg, status = '', log_level = logging.INFO):
 
     # Set the prefix on the logger itself
     l.msg_prefix = msg + ': '
-    if status:
-        l.info(status)
+    l.info(status)
     return l
 
 waitfor.spin_count = 0
