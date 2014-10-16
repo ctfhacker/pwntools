@@ -33,4 +33,5 @@ from pwnlib.util.web         import wget
 import \
     collections   , operator      , os            , pwn           , \
     pwnlib        , re            , string        , struct        , \
-    subprocess    , sys           , threading     , time
+    subprocess    , sys           , threading     , time          , \
+    tempfile
