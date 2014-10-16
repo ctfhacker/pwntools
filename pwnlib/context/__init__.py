@@ -318,7 +318,7 @@ class ContextType(object):
         'amd64':     little_64,
         'arm':       little_32,
         'cris':      little_32,
-        'i386':      little_64,
+        'i386':      little_32,
         'm68k':      big_32,
         'mips':      little_32,
         'mips64':    little_64,
