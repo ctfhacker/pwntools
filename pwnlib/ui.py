@@ -115,6 +115,8 @@ def more(text):
 
     Shows text like the command line tool ``more``.
 
+    It not in term_mode, just prints the data to the screen.
+
     Args:
       text(str):  The text to show.
 

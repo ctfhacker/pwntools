@@ -43,6 +43,7 @@ Each of the ``pwntools`` modules is documented here.
    tubes
    term
    ui
+   useragents
    util/*
 
 Indices and tables

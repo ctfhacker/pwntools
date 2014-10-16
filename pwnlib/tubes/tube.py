@@ -12,6 +12,10 @@ class tube(Timeout):
     Container of all the tube functions common to sockets, TTYs and SSH connetions.
     """
 
+    #: Delimiter to use for :meth:`sendline`, :meth:`recvline`,
+    #: and related functions.
+    newline = '\n'
+
     def __init__(self, timeout=None):
         # assert type(self) == tube
 
@@ -31,7 +35,7 @@ class tube(Timeout):
         all data is buffered and an empty string (``''``) is returned.
 
         Raises:
-            :exc:`exceptions.EOFError` The connection is closed
+            exceptions.EOFError: The connection is closed
 
         Returns:
             A string containing bytes received from the socket,
@@ -137,7 +141,7 @@ class tube(Timeout):
             timeout(int): Timeout for the operation
 
         Raises:
-            :exc:`exceptions.EOFError` The connection is closed
+            exceptions.EOFError: The connection is closed
 
         Returns:
             A string containing bytes received from the socket,
@@ -171,7 +175,7 @@ class tube(Timeout):
         all data is buffered and an empty string (``''``) is returned.
 
         Raises:
-            :exc:`exceptions.EOFError` The connection closed before the request could be satisfied
+            exceptions.EOFError: The connection closed before the request could be satisfied
 
         Returns:
             A string containing bytes received from the socket,
@@ -216,7 +220,7 @@ class tube(Timeout):
             drop(bool): Drop the ending.  If ``True`` it is removed from the end of the return value.
 
         Raises:
-            :exc:`exceptions.EOFError` The connection closed before the request could be satisfied
+            exceptions.EOFError: The connection closed before the request could be satisfied
 
         Returns:
             A string containing bytes received from the socket,
@@ -295,16 +299,19 @@ class tube(Timeout):
 
         Recieve up to ``numlines`` lines.
 
+        A "line" is any sequence of bytes terminated by the byte sequence
+        set by :attr:`newline`, which defaults to ``'\n'``.
+
         If the request is not satisfied before ``timeout`` seconds pass,
         all data is buffered and an empty string (``''``) is returned.
 
         Arguments:
             numlines(int): Maximum number of lines to receive
-            keep(bool): Keep newlines at the end of each line (default ``False``)
+            keep(bool): Keep newlines at the end of each line (``False``).
             timeout(int): Maximum timeout
 
         Raises:
-            :exc:`exceptions.EOFError` The connection closed before the request could be satisfied
+            exceptions.EOFError: The connection closed before the request could be satisfied
 
         Returns:
             A string containing bytes received from the socket,
@@ -351,11 +358,14 @@ class tube(Timeout):
 
         Receive a single line from the tube.
 
+        A "line" is any sequence of bytes terminated by the byte sequence
+        set in :attr:`newline`, which defaults to ``'\n'``.
+
         If the request is not satisfied before ``timeout`` seconds pass,
         all data is buffered and an empty string (``''``) is returned.
 
         Arguments:
-            keep(bool): Keep the line ending (default ``True``)
+            keep(bool): Keep the line ending (``True``).
             timeout(int): Timeout
 
         Return:
@@ -366,15 +376,18 @@ class tube(Timeout):
         Examples:
 
             >>> t = tube()
-            >>> t.recv_raw = lambda n: 'Foo\nBar\nBaz\n'
+            >>> t.recv_raw = lambda n: 'Foo\nBar\r\nBaz\n'
             >>> t.recvline()
             'Foo\n'
             >>> t.recvline()
-            'Bar\n'
+            'Bar\r\n'
             >>> t.recvline(keep = False)
             'Baz'
+            >>> t.newline = '\r\n'
+            >>> t.recvline(keep = False)
+            'Foo\nBar'
         """
-        return self.recvuntil('\n', drop = not keep, timeout = timeout)
+        return self.recvuntil(self.newline, drop = not keep, timeout = timeout)
 
     def recvline_pred(self, pred, keep = False, timeout = None):
         r"""recvline_pred(pred, keep = False) -> str
@@ -419,7 +432,7 @@ class tube(Timeout):
 
                 if pred(line):
                     if not keep:
-                        line = line.rstrip('\n')
+                        line = line[:-len(self.newline)]
                     return line
                 else:
                     tmpbuf.add(line)
@@ -490,7 +503,7 @@ class tube(Timeout):
         if not hasattr(delims, '__iter__'):
             delims = (delims,)
 
-        delims = tuple(delim + '\n' for delim in delims)
+        delims = tuple(delim + self.newline for delim in delims)
 
         return self.recvline_pred(lambda line: any(map(line.endswith, delims)),
                                   keep=keep,
@@ -548,7 +561,7 @@ class tube(Timeout):
 
         Receives data until a timeout or EOF is reached.
 
-        Example:
+        Examples:
 
             >>> data = [
             ... 'd',
@@ -605,7 +618,15 @@ class tube(Timeout):
         received.
 
         If it is not possible to send anymore because of a closed
-        connection, it raises and :exc:`exceptions.EOFError`.
+        connection, it raises ``exceptions.EOFError``
+
+        Examples:
+
+            >>> def p(x): print repr(x)
+            >>> t = tube()
+            >>> t.send_raw = p
+            >>> t.sendline('hello')
+            'hello'
         """
 
         if log.isEnabledFor(logging.DEBUG):
@@ -617,15 +638,27 @@ class tube(Timeout):
     def sendline(self, line):
         r"""sendline(data)
 
-        Shorthand for ``send(data + '\n')``.
+        Shorthand for ``t.send(data + t.newline)``.
+
+        Examples:
+
+            >>> def p(x): print repr(x)
+            >>> t = tube()
+            >>> t.send_raw = p
+            >>> t.sendline('hello')
+            'hello\n'
+            >>> t.newline = '\r\n'
+            >>> t.sendline('hello')
+            'hello\r\n'
         """
 
-        self.send(line + '\n')
+        self.send(line + self.newline)
 
     def sendafter(self, delim, data, timeout = None):
         """sendafter(delim, data, timeout = None) -> str
 
-        A combination of ``recvuntil(delim, timeout)`` and ``send(data)``."""
+        A combination of ``recvuntil(delim, timeout)`` and ``send(data)``.
+        """
 
         res = self.recvuntil(delim, timeout)
         self.send(data)
@@ -653,7 +686,7 @@ class tube(Timeout):
 
         A combination of ``sendline(data)`` and ``recvuntil(delim, timeout)``."""
 
-        self.send(data + '\n')
+        self.send(data + self.newline)
         return self.recvuntil(delim, timeout)
 
     def interactive(self, prompt = term.text.bold_red('$') + ' '):
@@ -713,12 +746,13 @@ class tube(Timeout):
         Removes all the buffered data from a tube by calling
         :meth:`pwnlib.tubes.tube.tube.recv` with a low timeout until it fails.
 
-        Example:
+        Examples:
 
             >>> t = tube()
             >>> t.unrecv('clean me up')
             >>> t.clean(0)
-            >>>
+            >>> len(t.buffer)
+            0
         """
 
         # Clear the internal buffer early, so that _recv()
@@ -734,9 +768,9 @@ class tube(Timeout):
         Works exactly as :meth:`pwnlib.tubes.tube.tube.clean`, but logs recieved
         data with :meth:`pwnlib.log.info`.
 
-        Example:
+        Examples:
 
-            >>> def recv(n, data=['', 'data']):
+            >>> def recv(n, data=['', 'hooray_data']):
             ...     while data: return data.pop()
             >>> context.log_level = 'info'
             >>> t = tube()
@@ -745,9 +779,7 @@ class tube(Timeout):
             >>> t.fileno        = lambda: 1234
             >>> t.clean_and_log() #doctest: +ELLIPSIS
             [...] Cleaning tube (fileno = 1234):
-                data
-            >>> None
-
+                hooray_data
         """
 
         if self.connected():
@@ -760,7 +792,7 @@ class tube(Timeout):
         Connects the input of this tube to the output of another tube object.
 
 
-        Example:
+        Examples:
 
             >>> def p(x): print x
             >>> def recvone(n, data=['data']):
@@ -774,7 +806,8 @@ class tube(Timeout):
             >>> b.connected_raw = lambda d: True
             >>> a.shutdown      = lambda d: True
             >>> b.shutdown      = lambda d: True
-            >>> b.connect_input(a)
+            >>> import time
+            >>> _=(b.connect_input(a), time.sleep(0.1))
             data
         """
 
@@ -815,7 +848,7 @@ class tube(Timeout):
 
         Connects the output of this tube to the input of another tube object.
 
-        Example:
+        Examples:
 
             >>> def p(x): print x
             >>> def recvone(n, data=['data']):
@@ -829,7 +862,7 @@ class tube(Timeout):
             >>> b.connected_raw = lambda d: True
             >>> a.shutdown      = lambda d: True
             >>> b.shutdown      = lambda d: True
-            >>> a.connect_output(b)
+            >>> _=(a.connect_output(b), time.sleep(0.1))
             data
         """
 
@@ -973,7 +1006,7 @@ class tube(Timeout):
         Returns:
           :const:`None`
 
-        Doctest:
+        Examples:
 
             >>> def p(x): print x
             >>> t = tube()
@@ -1062,7 +1095,7 @@ class tube(Timeout):
 
         Unless there is a timeout or closed connection, this should always
         return data. In case of a timeout, it should return None, in case
-        of a closed connection it should raise an :exc:`exceptions.EOFError`.
+        of a closed connection it should raise an ``exceptions.EOFError``.
         """
 
         raise EOFError('Not implemented')
@@ -1072,7 +1105,7 @@ class tube(Timeout):
 
         Should not be called directly. Sends data to the tube.
 
-        Should return :exc:`exceptions.EOFError`, if it is unable to send any
+        Should return ``exceptions.EOFError``, if it is unable to send any
         more, because of a close tube.
         """
 

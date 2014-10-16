@@ -266,7 +266,7 @@ branch = release
 try:
     git_branch = subprocess.check_output('git describe --tags', shell = True)
     if '-' in git_branch:
-        branch = 'master'
+        branch = subprocess.check_output('git rev-parse HEAD', shell = True).strip()[:10]
 except (IOError, OSError) as e:
     pass
 
@@ -301,4 +301,5 @@ def linkcode_resolve(domain, info):
             except IOError:
                 pass
 
+    print "https://github.com/Gallopsled/pwntools/blob/%s/%s" % (branch, filename)
     return "https://github.com/Gallopsled/pwntools/blob/%s/%s" % (branch, filename)

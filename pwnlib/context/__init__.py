@@ -119,6 +119,13 @@ class _Tls_DictStack(threading.local, _DictStack):
 
 
 def _validator(validator):
+    """
+    Validator that tis tightly coupled to the implementation
+    of the classes here.
+
+    This expects that the object has a ._tls property which
+    is of type _DictStack.
+    """
 
     name = validator.__name__
     doc  = validator.__doc__
@@ -130,7 +137,7 @@ def _validator(validator):
         self._tls[name] = validator(self, val)
 
     def fdel(self):
-        self._tls.pop(name,None)
+        self._tls._current.pop(name,None)
 
     return property(fget, fset, fdel, doc)
 
@@ -146,28 +153,29 @@ class Thread(threading.Thread):
 
     Examples:
 
-        >>> context.reset_local()
-        >>> context(arch='arm')
-        ContextType(arch = 'arm')
+        >>> context.clear()
+        >>> context.update(arch='arm')
         >>> def p():
-        ...     print context
+        ...     print context.arch
         ...     context.arch = 'mips'
-        ...     print context
+        ...     print context.arch
         >>> # Note that a normal Thread starts with a clean context
+        >>> # (i386 is the default architecture)
         >>> t = threading.Thread(target=p)
         >>> _=(t.start(), t.join())
-        ContextType()
-        ContextType(arch = 'mips')
+        i386
+        mips
         >>> # Note that the main Thread's context is unchanged
-        >>> context
-        ContextType(arch = 'arm')
+        >>> print context.arch
+        arm
         >>> # Note that a context-aware Thread receives a copy of the context
         >>> t = Thread(target=p)
         >>> _=(t.start(), t.join())
-        ContextType(arch = 'arm')
-        ContextType(arch = 'mips')
-        >>> context
-        ContextType()
+        arm
+        mips
+        >>> # Again, the main thread is unchanged
+        >>> context.arch
+        arm
 
     Implementation Details:
 
@@ -226,7 +234,7 @@ class ContextType(object):
     The context is usually specified at the top of the Python file for clarity. ::
 
         #!/usr/bin/env python
-        context(arch='i386', os='linux')
+        context.update(arch='i386', os='linux')
 
     Currently supported properties and their defaults are listed below.
     The defaults are inherited from :data:`pwnlib.context.ContextType.defaults`.
@@ -239,21 +247,19 @@ class ContextType(object):
 
     Examples:
 
-        >>> context
-        ContextType()
-        >>> context.update(os='linux')
-        ...
+        >>> context.clear()
+        >>> context.update(os='linux') # doctest: +ELLIPSIS
         >>> context.os == 'linux'
         True
         >>> context.arch = 'arm'
-        >>> context.copy() == {'arch': 'arm', 'os': 'linux'}
+        >>> vars(context) == {'arch': 'arm', 'bits': 32, 'endian': 'little', 'os': 'linux'}
         True
         >>> context.endian
         'little'
         >>> context.bits
         32
         >>> def nop():
-        ...   print pwnlib.asmasm('nop').encode('hex')
+        ...   print pwnlib.asm.asm('nop').encode('hex')
         >>> nop()
         00f020e3
         >>> with context.local(arch = 'i386'):
@@ -283,13 +289,14 @@ class ContextType(object):
 
     #: Default values for :class:`pwnlib.context.ContextType`
     defaults = {
-        'bits': 32,
-        'os': 'linux',
         'arch': 'i386',
+        'bits': 32,
         'endian': 'little',
+        'log_level': logging.INFO,
+        'newline': '\n',
+        'os': 'linux',
         'signed': False,
-        'timeout': 1,
-        'log_level': logging.INFO
+        'timeout': 1.0,
     }
 
     #: Valid values for :meth:`pwnlib.context.ContextType.os`
@@ -340,6 +347,8 @@ class ContextType(object):
         'signed':   True
     }
 
+    valid_signed = sorted(signednesses)
+
     def __init__(self, **kwargs):
         """
         Initialize the ContextType structure.
@@ -351,18 +360,22 @@ class ContextType(object):
 
 
     def copy(self):
-        """
+        """copy() -> dict
         Returns a copy of the current context as a dictionary.
 
         Examples:
 
-            >>> context.reset_local()
-            >>> context.arch = 'i386'
+            >>> context.clear()
             >>> context.os   = 'linux'
-            >>> context.copy() == {'arch': 'i386', 'os': 'linux'}
+            >>> vars(context) == {'os': 'linux'}
             True
         """
         return self._tls.copy()
+
+
+    @property
+    def __dict__(self):
+        return self.copy()
 
     def update(self, *args, **kwargs):
         """
@@ -388,9 +401,8 @@ class ContextType(object):
 
         Examples:
 
-            >>> context.arch.reset_local()
-            >>> context(arch = 'i386', os = 'linux')
-            ...
+            >>> context.clear()
+            >>> context.update(arch = 'i386', os = 'linux')
             >>> context.arch, context.os
             ('i386', 'linux')
         """
@@ -400,14 +412,13 @@ class ContextType(object):
         for k,v in kwargs.items():
             setattr(self,k,v)
 
-        return self
-
     def __repr__(self):
         v = sorted("%s = %r" % (k,v) for k,v in self._tls._current.items())
         return '%s(%s)' % (self.__class__.__name__, ', '.join(v))
 
     def local(self, **kwargs):
-        """
+        """local(**kwargs) -> context manager
+
         Create a context manager for use with the ``with`` statement.
 
         For more information, see the example below or PEP 343.
@@ -419,16 +430,19 @@ class ContextType(object):
           ContextType manager for managing the old and new environment.
 
         Examples:
-            >>> context
-            ContextType()
-            >>> with context.local(arch = 'mips'):
-            ...     print context
-            ...     context.arch = 'arm'
-            ...     print context
-            ContextType(arch = 'mips')
-            ContextType(arch = 'arm')
-            >>> print context
-            ContextType()
+
+            >>> context.clear()
+            >>> context.timeout = 1
+            >>> print context.timeout
+            1.0
+            >>> with context.local(timeout = 2):
+            ...     print context.timeout
+            ...     context.timeout = 3
+            ...     print context.timeout
+            2.0
+            3.0
+            >>> print context.timeout
+            1.0
         """
         class LocalContext(object):
             def __enter__(a):
@@ -441,35 +455,36 @@ class ContextType(object):
 
         return LocalContext()
 
-    def reset_local(self):
+    def clear(self):
         """
-        Clears the contents innermost scoped context on the context stack.
+        Clears the contents of the context.
 
         Examples:
 
             >>> # Default value
-            >>> print context.os
-            i386
-            >>> # Inside of a scope, use reset_local
-            >>> context.os = 'arm'
+            >>> del context.timeout
+            >>> print context.timeout
+            1.0
+            >>> # Inside of a scope, use clear
+            >>> context.timeout = 2
             >>> with context.local():
-            ...     print context.os
-            ...     context.reset_local()
-            ...     print context.os
-            arm
-            i386
+            ...     print context.timeout
+            ...     context.clear()
+            ...     print context.timeout
+            2.0
+            1.0
             >>> # Outer scope is unaffected
-            >>> print context.os
-            arm
+            >>> print context.timeout
+            2.0
             >>> # It can also be used in the global scope
-            >>> context.reset_local()
-            >>> print context.os
-            i386
+            >>> context.clear()
+            >>> print context.timeout
+            1.0
         """
         self._tls._current.clear()
 
     def thread(self, *args, **kwargs):
-        """
+        """thread(*args, **kwargs) -> Thread object
         Instantiates a context-aware thread, which inherit its context
         when it is instantiated.
 
@@ -491,30 +506,31 @@ class ContextType(object):
         """
         return Thread(*args, **kwargs)
 
-    @property
-    def arch(self):
+    @_validator
+    def arch(self, arch):
         """
         Target machine architecture.
 
         Allowed values are listed in :attr:`pwnlib.context.ContextType.architectures`.
 
-        .. _side-effects:
         Side Effects:
 
-            Depending on the architecture specified, the default values for
-            the following default values for context properties may be updated:
+            If an architecture is specified which also implies additional
+            attributes (e.g. 'amd64' implies 64-bit words, 'powerpc' implies
+            big-endian), these attributes will be set on the context if a
+            user has not already set a value.
+
+            The following properties may be modified.
 
             - :attr:`bits`
             - :attr:`endian`
 
-            Note that these changes only affect the **default** context values.
-            They will not override user-specified values.
-
         Raises:
-            ValueError: An invalid architecture was specified
+            AttributeError: An invalid architecture was specified
 
         Examples:
-            >>> context.reset_local()
+
+            >>> context.clear()
             >>> context.arch == 'i386' # Default architecture
             True
 
@@ -525,45 +541,37 @@ class ContextType(object):
             >>> context.arch = 'doge' #doctest: +ELLIPSIS
             Traceback (most recent call last):
              ...
-            ValueError: arch must be one of ['alpha', ..., 'thumb']
+            AttributeError: arch must be one of ['aarch64', ..., 'thumb']
 
             >>> context.arch = 'ppc'
             >>> context.arch == 'powerpc' # Aliased architecture
             True
 
-            >>> context.reset_local()
+            >>> context.clear()
             >>> context.bits == 32 # Default value
             True
             >>> context.arch = 'amd64'
-            >>> context.bits == 64 # New default value
+            >>> context.bits == 64 # New value
             True
 
             Note that expressly setting :attr:`bits` means that we use
             that value instead of the default
 
-            >>> context.reset_local()
+            >>> context.clear()
             >>> context.bits = 32
-            >>> context.arch = 'aarch64'
+            >>> context.arch = 'amd64'
             >>> context.bits == 32
             True
 
             Setting the architecture can override the defaults for
             both :attr:`endian` and :attr:`bits`
 
-            >>> context.reset_local()
+            >>> context.clear()
             >>> context.arch = 'powerpc64'
-            >>> context.endian == 'big'
-            True
-            >>> context.bits == 64
-            True
-            >>> context.arch == 'powerpc'
+            >>> vars(context) == {'arch': 'powerpc64', 'bits': 64, 'endian': 'big'}
             True
         """
-        return self._tls['arch']
 
-
-    @arch.setter
-    def arch(self, arch):
         # Lowercase, remove everything non-alphanumeric
         arch = arch.lower()
         arch = arch.replace(string.punctuation, '')
@@ -576,21 +584,25 @@ class ContextType(object):
                 arch = arch.replace(k,v,1)
 
         try:
-            self.defaults.update(ContextType.architectures[arch])
+            defaults = ContextType.architectures[arch]
         except KeyError:
-            raise ValueError('arch must be one of %r' % sorted(ContextType.architectures))
-        else:
-            self._tls['arch'] = arch
+            raise AttributeError('AttributeError: arch must be one of %r' % sorted(ContextType.architectures))
 
-    @property
-    def bits(self):
+        for k,v in ContextType.architectures[arch].items():
+            if k not in self._tls:
+                self._tls[k] = v
+
+        return arch
+
+    @_validator
+    def bits(self, bits):
         """
-        Word size of the target machine, in bits (i.e. the size of general purpose registers).
+        Target machine word size, in bits (i.e. the size of general purpose registers).
 
         The default value is ``32``, but changes according to :attr:`arch`.
 
         Examples:
-            >>> context.reset_local()
+            >>> context.clear()
             >>> context.bits == 32
             True
             >>> context.bits = 64
@@ -599,27 +611,24 @@ class ContextType(object):
             >>> context.bits = -1 #doctest: +ELLIPSIS
             Traceback (most recent call last):
             ...
-            ValueError: bits must be >= 0 (-1)
+            AttributeError: bits must be >= 0 (-1)
         """
-        return self._tls['bits']
-
-    @bits.setter
-    def bits(self, bits):
         bits = int(bits)
 
         if bits <= 0:
-            raise ValueError("bits must be >= 0 (%r)" % bits)
+            raise AttributeError("bits must be >= 0 (%r)" % bits)
 
-        self._tls['bits'] = bits
+        return bits
 
     @property
     def bytes(self):
         """
-        Word size of the target machine, in bytes (i.e. the size of general purpose registers).
+        Target machine word size, in bytes (i.e. the size of general purpose registers).
 
         This is a convenience wrapper around ``bits / 8``.
 
         Examples:
+
             >>> context.bytes = 1
             >>> context.bits == 8
             True
@@ -627,26 +636,27 @@ class ContextType(object):
             >>> context.bytes = 0 #doctest: +ELLIPSIS
             Traceback (most recent call last):
             ...
-            ValueError: bits must be >= 0 (0)
+            AttributeError: bits must be >= 0 (0)
         """
-        return self.bits / 8
-
+        return self.bits/8
     @bytes.setter
     def bytes(self, value):
-        self.bits = 8*value
+        self.bits = value*8
 
-    @property
-    def endian(self):
+
+    @_validator
+    def endian(self, endianness):
         """
         Endianness of the target machine.
 
         The default value is ``'little'``, but changes according to :attr:`arch`.
 
         Raises:
-            ValueError: An invalid endianness was provided
+            AttributeError: An invalid endianness was provided
 
         Examples:
-            >>> context.reset_local()
+
+            >>> context.clear()
             >>> context.endian == 'little'
             True
 
@@ -661,109 +671,18 @@ class ContextType(object):
             >>> context.endian = 'foobar' #doctest: +ELLIPSIS
             Traceback (most recent call last):
              ...
-            ValueError: endian must be one of ['be', 'big', 'eb', 'el', 'le', 'little']
+            AttributeError: endian must be one of ['be', 'big', 'eb', 'el', 'le', 'little']
         """
-        return self._tls['endian']
-
-    @endian.setter
-    def endian(self, endian):
         endian = endianness.lower()
 
         if endian not in ContextType.endiannesses:
-            raise ValueError("endian must be one of %r" % sorted(ContextType.endiannesses))
+            raise AttributeError("endian must be one of %r" % sorted(ContextType.endiannesses))
 
-        self._tls['endian'] = ContextType.endiannesses[endian]
-
-
-    @property
-    def keep_line_ends(self):
-        r"""
-        Determines whether, by default, :meth:`pwnlib.tubes.tube.tube.recvline`
-        and related routines will strip newlines.
-
-        Default value is ``True``
-
-        Examples:
-
-            >>> context.keep_line_ends
-            True
-            >>> t = pwnlibe.tubes.tube.tube()
-            >>> t.recv_raw = lambda: 'Hello\nWorld\n'
-            >>> t.recvline()
-            'Hello\n'
-            >>> contet.keep_line_ends = False
-            >>> t.recvline()
-            'World'
-        """
-
-        return self._tls['keep_line_ends']
-
-    @keep_line_ends.setter
-    def keep_line_ends(self, value):
-        self._tls['keep_line_ends'] = bool(value)
-
-    @property
-    def os(self):
-        """
-        Operating system of the target machine.
-
-        The default value is ``linux``.
-
-        Allowed values are listed in :attr:`pwnlib.context.ContextType.oses`.
-
-        Examples:
-            >>> context.os = 'linux'
-            >>> context.os = 'foobar' #doctest: +ELLIPSIS
-            Traceback (most recent call last):
-            ...
-            ValueError: os must be one of ['freebsd', 'linux', 'windows']
-        """
-        return self._tls['os']
-
-    @os.setter
-    def os(self, os):
-        os = os.lower()
-
-        if os not in ContextType.oses:
-            raise ValueError("os must be one of %r" % sorted(ContextType.oses))
-
-        self._tls['os'] = os
-
-    @property
-    def timeout(self):
-        """
-        Default amount of time to wait for a blocking operation before it times out,
-        specified in seconds.
-
-        The default value is ``1``.
-
-        Any floating point value is accepted, as well as the special
-        string ``'inf'`` which implies that a timeout can never occur.
+        return ContextType.endiannesses[endian]
 
 
-        Examples:
-            >>> context.timeout == 1
-            True
-            >>> context.timeout = 'inf'
-            >>> context.timeout > 2**256
-            True
-            >>> context.timeout - 30
-            inf
-        """
-        return self._tls['timeout']
-
-    @timeout.setter
-    def timeout(self, value):
-        value = float(value)
-
-        if value < 0:
-            raise ValueError("timeout must not be negative (%r)" % value)
-
-        self._tls['timeout'] = value
-
-
-    @property
-    def log_level(self):
+    @_validator
+    def log_level(self, value):
         """
         Sets the verbosity of ``pwntools`` logging mechanism.
 
@@ -772,6 +691,7 @@ class ContextType(object):
         Default value is set to ``INFO``.
 
         Examples:
+
             >>> context.log_level == logging.INFO
             True
             >>> context.log_level = 'error'
@@ -781,30 +701,73 @@ class ContextType(object):
             >>> context.log_level = 'foobar' #doctest: +ELLIPSIS
             Traceback (most recent call last):
             ...
-            ValueError: log_level must be an integer or one of ['CRITICAL', 'DEBUG', 'ERROR', 'INFO', 'NOTSET', 'WARN', 'WARNING']
+            AttributeError: log_level must be an integer or one of ['CRITICAL', 'DEBUG', 'ERROR', 'INFO', 'NOTSET', 'WARN', 'WARNING']
         """
-        return self._tls['log_level']
-
-    @log_level.setter
-    def log_level(self, value):
         # If it can be converted into an int, success
-        try:                    self._tls['log_level'] = int(value)
-        except ValueError:      pass
-        else:                   return
+        try:                    return int(value)
+        except ValueError:  pass
 
         # If it is defined in the logging module, success
-        try:                    self._tls['log_level'] = getattr(logging, value.upper())
+        try:                    return getattr(logging, value.upper())
         except AttributeError:  pass
-        else:                   return
 
         # Otherwise, fail
         level_names = filter(lambda x: isinstance(x,str), logging._levelNames)
         permitted = sorted(level_names)
-        raise ValueError('log_level must be an integer or one of %r' % permitted)
+        raise AttributeError('log_level must be an integer or one of %r' % permitted)
 
 
-    @property
-    def signed(self):
+    @_validator
+    def newline(self, value):
+        r"""
+        Defines the newline character, as interpreted by objects from
+        :mod:`pwntools.tubes`.
+
+        Default value is ``'\n'``
+
+        Examples:
+
+            >>> context.newline
+            '\n'
+            >>> t = pwnlib.tubes.tube.tube()
+            >>> t.recv_raw = lambda n: 'Hello\r\nWorld\r\n'
+            >>> t.recvlines(2)
+            ['Hello\r', 'World\r']
+            >>> context.newline = '\r\n'
+            >>> t.recvlines(2)
+            ['Hello', 'World']
+        """
+        return value
+
+
+    @_validator
+    def os(self, os):
+        """
+        Operating system of the target machine.
+
+        The default value is ``linux``.
+
+        Allowed values are listed in :attr:`pwnlib.context.ContextType.oses`.
+
+        Examples:
+
+            >>> context.os = 'linux'
+            >>> context.os = 'foobar' #doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            AttributeError: os must be one of ['freebsd', 'linux', 'windows']
+        """
+        os = os.lower()
+
+        if os not in ContextType.oses:
+            raise AttributeError("os must be one of %r" % sorted(ContextType.oses))
+
+        return os
+
+
+
+    @_validator
+    def signed(self, signed):
         """
         Signed-ness for packing operation when it's not explicitly set.
 
@@ -813,6 +776,7 @@ class ContextType(object):
         ``True`` and ``False`` correspondingly.
 
         Examples:
+
             >>> context.signed
             False
             >>> context.signed = 1
@@ -827,64 +791,63 @@ class ContextType(object):
             >>> context.signed = 'foobar' #doctest: +ELLIPSIS
             Traceback (most recent call last):
             ...
-            ValueError: signed must be one of ['no', 'signed', 'unsigned', 'yes'] or a non-string truthy value
+            AttributeError: signed must be one of ['no', 'signed', 'unsigned', 'yes'] or a non-string truthy value
         """
-        return self._tls['signed']
-
-    @signed.setter
-    def signed(self, signed):
         try:             signed = ContextType.signednesses[signed]
         except KeyError: pass
 
         if isinstance(signed, str):
-            raise ValueError('signed must be one of %r or a non-string truthy value' % sorted(ContextType.signednesses))
+            raise AttributeError('signed must be one of %r or a non-string truthy value' % sorted(ContextType.signednesses))
 
-        self._tls['signed'] = bool(signed)
+        return bool(signed)
 
+    @_validator
+    def term_mode(self, value):
+        """
+        Determines whether fancy terminal mode is enabled.
 
-    @property
-    def newline(self):
-        r"""
-        Defines the newline character, as interpreted by objects from
-        :mod:`pwntools.tubes`.
+        Automatically set by :mod:`pwnlib.term` if fancy terminal can be used.
 
-        Default value is ``'\n'``
+        Set to ``False`` to disable.
+        """
+        return bool(value)
+
+    @_validator
+    def timeout(self, value):
+        """
+        Default amount of time to wait for a blocking operation before it times out,
+        specified in seconds.
+
+        The default value is ``1``.
+
+        Any floating point value is accepted, as well as the special
+        string ``'inf'`` which implies that a timeout can never occur.
+
 
         Examples:
 
-            >>> context.newline
-            '\n'
-            >>> t = pwnlib.tubes.tube.tube()
-            >>> t.recv_raw = lambda: 'Hello\r\nWorld\r\n'
-            >>> t.recvlines(2)
-            ['Hello\r', 'World\r']
-            >>> context.newline = '\r\n'
-            >>> t.recvlines(2)
-            ['Hello', 'World']
+            >>> context.timeout == 1
+            True
+            >>> context.timeout = 'inf'
+            >>> context.timeout > 2**256
+            True
+            >>> context.timeout - 30
+            inf
         """
+        value = float(value)
 
-        return self._tls['newline']
-    @newline.setter
-    def newline(self, value):
-        self._tls['newline'] = value
+        if value < 0:
+            raise AttributeError("timeout must not be negative (%r)" % value)
 
-
-    @property
-    def foo(self):
-        return self._foo
-    @foo.setter
-    def foo(self, value):
-        self._foo = value
-
-
+        return value
 
 
     #*************************************************************************
-    #                           DEPRECATED FIELDS
+    #                               ALIASES
     #*************************************************************************
     #
-    # These fields are deprecated, but support is ensured for backward
-    # compatibility.
+    # These fields are aliases for fields defined above, either for
+    # convenience or compatibility.
     #
     #*************************************************************************
 
@@ -894,27 +857,27 @@ class ContextType(object):
         """
         return self.update(**kwargs)
 
-    @property
-    def word_size(self):
+    def reset_local(self):
         """
-        Alias for :attr:`bits`
+        Deprecated.  Use :meth:`clear`.
         """
-        return self.bits
-
-    @word_size.setter
-    def word_size(self, value):
-        self.bits = value
+        self.clear()
 
     @property
-    def signedness(self):
+    def endianness(self):
         """
-        Alias for :attr:`signed`
-        """
-        return self.signed
+        Legacy alias for :attr:`endian`.
 
-    @signedness.setter
-    def signedness(self, value):
-        self.signed = value
+        Examples:
+
+            >>> context.endian == context.endianness
+            True
+        """
+        return self.endian
+    @endianness.setter
+    def endianness(self, value):
+        self.endian = value
+
 
     @property
     def sign(self):
@@ -927,19 +890,29 @@ class ContextType(object):
     def sign(self, value):
         self.signed = value
 
+    @property
+    def signedness(self):
+        """
+        Alias for :attr:`signed`
+        """
+        return self.signed
+
+    @signedness.setter
+    def signedness(self, value):
+        self.signed = value
+
 
     @property
-    def endianness(self):
+    def word_size(self):
         """
-        Legacy alias for :attr:`endian`.
+        Alias for :attr:`bits`
+        """
+        return self.bits
 
-        Examples:
-            >>> context.endian == context.endianness
-            True
-        """
-        return self.endian
-    @endianness.setter
-    def endianness(self, value):
-        self.endian = value
+    @word_size.setter
+    def word_size(self, value):
+        self.bits = value
+
+
 
 context = ContextType()
