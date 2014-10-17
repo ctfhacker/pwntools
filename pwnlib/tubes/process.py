@@ -106,11 +106,22 @@ class process(tube):
         if timeout > 2**31:
             timeout = 2**31
 
-        if timeout == None:
-            return select.select([self.proc.stdout], [], []) == ([self.proc.stdout], [], [])
+        if not self.connected_raw('recv'):
+            return False
 
-        timeout = int(timeout)
-        return select.select([self.proc.stdout], [], [], timeout) == ([self.proc.stdout], [], [])
+        try:
+            if timeout == None:
+                return select.select([self.proc.stdout], [], []) == ([self.proc.stdout], [], [])
+
+            return select.select([self.proc.stdout], [], [], timeout) == ([self.proc.stdout], [], [])
+        except ValueError:
+            # Not sure why this isn't caught when testing self.proc.stdout.closed,
+            # but it's not.
+            #
+            #   File "/home/user/pwntools/pwnlib/tubes/process.py", line 112, in can_recv_raw
+            #     return select.select([self.proc.stdout], [], [], timeout) == ([self.proc.stdout], [], [])
+            # ValueError: I/O operation on closed file
+            raise EOFError
 
     def connected_raw(self, direction):
         if direction == 'any':

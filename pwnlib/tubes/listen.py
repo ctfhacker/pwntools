@@ -100,7 +100,9 @@ class listen(sock):
     def spawn_process(self, *args, **kwargs):
         def accepter():
             self.wait_for_connection()
-            super(listen, self).spawn_process(*args, **kwargs)
+            p = super(listen, self).spawn_process(*args, **kwargs)
+            p.wait()
+            self.close()
         t = context.thread(target = accepter)
         t.daemon = True
         t.start()

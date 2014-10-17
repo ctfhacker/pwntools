@@ -607,16 +607,14 @@ class tube(Timeout):
 
         with log.waitfor('Recieving all data') as h:
             l = len(self.buffer)
-            with self.countdown('inf'):
+            with self.local('inf'):
                 data = 'yay truthy strings'
 
-                while data:
-                    try:
-                        data = self._fillbuffer()
-                    except EOFError:
-                        break
-                    l += len(data)
-                    h.status(misc.size(l))
+                try:
+                    while self._fillbuffer():
+                        h.status(misc.size(len(self.buffer)))
+                except EOFError:
+                    pass
 
             h.success("Done (%s)" % misc.size(l))
 
@@ -899,7 +897,7 @@ class tube(Timeout):
 
         Takes the same arguments as :class:`subprocess.Popen`."""
 
-        subprocess.Popen(
+        return subprocess.Popen(
             *args,
             stdin = self.fileno(),
             stdout = self.fileno(),
