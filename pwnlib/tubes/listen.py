@@ -101,7 +101,7 @@ class listen(sock):
         def accepter():
             self.wait_for_connection()
             super(listen, self).spawn_process(*args, **kwargs)
-        t = Thread(target = accepter)
+        t = context.thread(target = accepter)
         t.daemon = True
         t.start()
 

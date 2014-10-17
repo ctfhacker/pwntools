@@ -594,9 +594,8 @@ class tube(Timeout):
             'd'
         """
 
-        with self.local(timeout):
-            while self._fillbuffer():
-                pass
+        while self._fillbuffer(timeout=timeout):
+            pass
 
         return self.buffer.get()
 
@@ -776,8 +775,9 @@ class tube(Timeout):
         # does not loop over it and concatenate unnecessarily.
         self.buffer.get()
 
-        if timeout > 0:
-            self.recvrepeat(timeout = timeout)
+        data = 'demo'
+        while data:
+            data = self.recv(timeout = timeout)
 
     def clean_and_log(self, timeout = 0.05):
         """clean_and_log(timeout = 0.05)

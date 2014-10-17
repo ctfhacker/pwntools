@@ -1,7 +1,7 @@
 <% from pwnlib.shellcraft import amd64 %>
 <%docstring>Execute /bin/sh</%docstring>
 
-    mov rax, '/bin//sh'
+    mov rax, 0x68732f2f6e69622f /* '/bin//sh' */
 
     /*  clear rdx and rsi */
     cdq
