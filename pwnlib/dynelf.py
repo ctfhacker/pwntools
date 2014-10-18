@@ -1,7 +1,4 @@
-from . import elf, memleak
-import logging
-
-log = logging.getLogger('pwn.dynelf')
+from . import elf, log, memleak
 
 def sysv_hash(symbol):
     """sysv_hash(str) -> int
@@ -157,14 +154,16 @@ class DynELF:
 
         PIE = (e.elftype == 'DYN')
 
-        bash = e.address
+        #On non position independent executables the base address can be read off the elf.
+        if PIE is False and base is None:
+            base = filter(lambda x: x['p_type'] == 'PT_LOAD' and (x.header.p_flags & 1), e.segments)[0]['p_vaddr']
 
         #At this point we should have a base address
-        if PIE and e.address == e.load_addr:
-            log.error('Position independent ELF needs a base address')
+        base = base or e.address
+        if base is None:
+            log.die('Position independent ELF needs a base address')
 
-        print [x.name for x in e.sections]
-        gotoff = e.get_section_by_name('.got.plt').header['sh_addr']
+        gotoff = filter(lambda x: x.name == '.got.plt', e.sections)[0].header['sh_addr']
         #Sometimes the address is absolute, other times it's an offset relative to the base.
         #Detect which.
         if gotoff > base:
@@ -190,7 +189,7 @@ class DynELF:
         self.link_map = link_map
         self.libbase = libbase
         if self.link_map is None and self.libbase is None:
-            log.error('Either link_map or libbase needs to be specified')
+            log.die('Either link_map or libbase needs to be specified')
 
     def bases(self):
         '''Resolve base addresses of all loaded libraries.

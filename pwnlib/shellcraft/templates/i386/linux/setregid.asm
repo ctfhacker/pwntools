@@ -20,3 +20,5 @@ Args: [gid (imm/reg) = egid]
     push SYS_setregid
     pop eax
     int 0x80
+
+    /* eof */
