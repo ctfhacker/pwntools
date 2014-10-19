@@ -49,6 +49,8 @@ class MemLeak(object):
         self.reraise = reraise
 
     def _leak(self, addr):
+        """
+        """
         if addr in self.cache:
             return self.cache[addr]
         try:
@@ -62,8 +64,7 @@ class MemLeak(object):
         if x is None:
             self.cache[addr] = None
             return None
-        bs = list(x)
-        for n, b in enumerate(bs):
+        for n, b in enumerate(x):
             self.cache[addr + n] = ord(b)
         return self.cache[addr]
 
