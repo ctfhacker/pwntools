@@ -760,6 +760,8 @@ class tube(Timeout):
         Removes all the buffered data from a tube by calling
         :meth:`pwnlib.tubes.tube.tube.recv` with a low timeout until it fails.
 
+        If ``timeout`` is zero, only cached data will be cleared.
+
         Examples:
 
             >>> t = tube()
@@ -774,7 +776,7 @@ class tube(Timeout):
         self.buffer.get()
 
         data = 'demo'
-        while data:
+        while timeout and data:
             data = self.recv(timeout = timeout)
 
     def clean_and_log(self, timeout = 0.05):
