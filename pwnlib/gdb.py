@@ -20,10 +20,12 @@ def debug(args, exe=None, execute=None, ssh=None):
         - stdin/stdout of the launched process
         - stdin/stdout of GDB
     """
+    binary    = args[0]
     args      = ['gdbserver', 'localhost:0'] + args
 
     if not ssh:
         execute = tubes.process.process
+        which   = misc.which
     if ssh:
         execute = ssh.run
         which     = ssh.which
@@ -47,15 +49,13 @@ def debug(args, exe=None, execute=None, ssh=None):
         remote   = ssh.connect_remote('127.0.0.1', port)
         listener = tubes.listen.listen(0)
         port     = listener.lport
-    elif not exe:
-        exe = misc.which(args[0])
 
-    result = attach(('127.0.0.1', port), exe=exe)
+    result = attach(('127.0.0.1', port), exe=binary)
 
     if ssh:
         remote <> listener.wait_for_connection()
 
-    return result
+    return gdbserver
 
 def attach(target, execute = None, exe = None, arch = None):
     """attach(target, execute = None, exe = None, arch = None) -> None
